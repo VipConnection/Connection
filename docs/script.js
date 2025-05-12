@@ -1,47 +1,58 @@
-// 1) Carga Google Charts
-google.charts.load('current', { packages: ['orgchart'] });
-google.charts.setOnLoadCallback(drawChart);
+/**
+ * Reconstruye el organigrama con espejos “alineados”
+ * Usando la hoja “UsuariosDiamond” completa
+ */
+function rebuildUsuariosDiamond() {
+  const ss  = SpreadsheetApp.getActive();
+  const src = ss.getSheetByName('UsuariosDiamond');
+  const dst = ss.getSheetByName('UsuariosDiamond'); // no la tocamos, solo leemos
+  if (!src) throw new Error('No encuentro la hoja “UsuariosDiamond”');
 
-async function drawChart() {
-  const sheetId = '1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs'; // tu ID de Spreadsheet
-  const sheetGid = '0';                                          // GID de la pestaña “UsuariosDiamond”
-  const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${sheetGid}`;
+  // Leemos B:L (UserID, ParentID, isMirror, Nivel, espejo1… espejo9)
+  const last = src.getLastRow();
+  const raw  = src.getRange(`B1:L${last}`).getValues();
+  const header = raw.shift();
+  // columnas:
+  const IDX_USER    = header.indexOf('UserID');
+  const IDX_PARENT  = header.indexOf('ParentID');
+  const IDX_ISMIRROR= header.indexOf('isMirror');
+  // a partir de la 5ª columna están tus espejos espejo1…espejo9
+  const firstMirrorCol = 4;
 
-  const errorDiv = document.getElementById('error');
-  try {
-    const resp = await fetch(csvUrl);
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const text = await resp.text();
+  // Construimos mapa de hijos: para cada padre, array de sus espejos por posición
+  const mirrorMap = {}; // mirrorMap[parentID] = [ [mir1_of_childA, mir2…], [mir1_of_childB…], … ]
+  raw.forEach(r => {
+    const pid = r[IDX_PARENT];
+    if (!mirrorMap[pid]) mirrorMap[pid] = [];
+    mirrorMap[pid].push(r.slice(firstMirrorCol));
+  });
 
-    // 2) Convertimos CSV a array de filas
-    const rows = text.trim().split('\n').map(r => r.split(','));
+  // Ahora generamos el array final de “filas” para el chart:
+  // 1) Primero las filas «normales» (no espejo): [ UserID, '' ]
+  // 2) Luego por cada hijo, sus espejos bajo cada espejo de padre
+  const rows = [];
+  // 1) No espejos
+  raw.filter(r => !r[IDX_ISMIRROR]).forEach(r => {
+    rows.push([ String(r[IDX_USER]), '' ]);
+  });
+  // 2) Espejos:
+  raw.filter(r => r[IDX_ISMIRROR]).forEach(r => {
+    const uid = String(r[IDX_USER]);
+    const pid = r[IDX_PARENT];
+    const pos = mirrorMap[pid].findIndex(arr => arr.includes(uid)); 
+    // pos = cuál posición dentro del array de espejos de ese padre
+    // buscamos en mirrorMap[pid] dónde aparece este uid
+    const parentMirrors = mirrorMap[pid]; // matriz: [ [mirrors of child1], [mirrors of child2], … ]
+    const mgr = parentMirrors.map(row=>row)[pos]; 
+    // mgr = array de espejos de ese padre para la posición pos
+    // en realidad queremos coger el valor en esa misma columna:
+    const mirrorOfGrandpa = mgr[pos]; 
+    // ojo: asumimos mismo índice
+    rows.push([ uid, String(mirrorOfGrandpa) ]);
+  });
 
-    // 3) Eliminamos la primera fila (la de la fórmula)
-    rows.shift();
-
-    // 4) Creamos DataTable
-    const data = new google.visualization.DataTable();
-    data.addColumn('string', 'Name');
-    data.addColumn('string', 'Manager');
-
-    // 5) Fijos índices:
-    const IDX_USER   = 0;   // columna A → UserID
-    const IDX_PARENT = 4;   // columna E → ParentForChart
-    const IDX_MIRROR = 2;   // columna C → isMirror
-
-    // 6) Añadimos cada fila: si es espejo, manager=ParentForChart, si no, manager vacío
-    rows.forEach(r => {
-      const name    = r[IDX_USER];
-      const manager = (r[IDX_MIRROR] === 'TRUE') ? r[IDX_PARENT] : '';
-      data.addRow([ name, manager ]);
-    });
-
-    // 7) Dibujamos
-    const chart = new google.visualization.OrgChart(document.getElementById('chart_div'));
-    chart.draw(data, { allowHtml: true });
-    errorDiv.textContent = '';
-  } catch (e) {
-    console.error(e);
-    errorDiv.textContent = 'Error: ' + e.message;
-  }
+  // Escribimos esas filas en una hoja intermedia (por ejemplo “ParaChart”), o las devolvemos a la UI
+  const out = ss.getSheetByName('ParaChart');
+  out.clear();
+  out.getRange(1,1,rows.length,2).setValues(rows);
 }
