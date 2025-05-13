@@ -3,41 +3,43 @@ google.charts.load('current',{packages:['corechart','orgchart']});
 google.charts.setOnLoadCallback(drawChart);
 
 function drawChart() {
-  const sheetId  = '1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs';
-  const sheetName = 'UsuariosDiamond';       // nombre de tu pestaña final
-  const queryStr = encodeURIComponent(`SELECT A,B,C,D,E`);
-  const queryUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?sheet=${sheetName}&tq=${queryStr}`;
+  // 1) Tu ID de spreadsheet
+  const sheetId   = '1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs';
+  // 2) El nombre EXACTO de la pestaña que has publicado
+  const sheetName = 'UsuariosDiamond';
+  // Seleccionamos A–E y saltamos la fila de cabecera
+  const queryStr  = encodeURIComponent('SELECT A,B,C,D,E OFFSET 1');
+  const queryUrl  = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?sheet=${encodeURIComponent(sheetName)}&tq=${queryStr}`;
 
   const errorDiv = document.getElementById('error');
   const chartDiv = document.getElementById('chart_div');
 
-  // lanzamos una query
   const query = new google.visualization.Query(queryUrl);
   query.send(response => {
     if (response.isError()) {
       errorDiv.textContent = 'Error cargando datos: ' + response.getMessage();
       return;
     }
-    // 1) Tenemos ya una DataTable limpia
+
     const dt = response.getDataTable();
 
-    // 2) Montamos nuestro mapa de nodos
+    // 3) Construimos el mapa de nodos
     const nodes = {};
-    // Recorremos todas las filas
     for (let r = 0; r < dt.getNumberOfRows(); r++) {
-      const id         = dt.getValue(r, 0) + '';
-      const parent     = dt.getValue(r, 4) + '';
-      const isMirror   = !!dt.getValue(r, 2);
+      const id       = dt.getValue(r, 0) + '';
+      const parent   = dt.getValue(r, 4) + '';
+      const isMirror = Boolean(dt.getValue(r, 2));
+
       nodes[id] = {
         id,
         parent,
         isMirror,
-        chartParent: isMirror ? null : parent,
         mirrors: [],
         children: []
       };
     }
-    // 3) Rellenamos mirrors y children
+
+    // 4) Rellenamos mirrors y children
     Object.values(nodes).forEach(node => {
       if (node.isMirror) {
         const p = nodes[node.parent];
@@ -48,36 +50,38 @@ function drawChart() {
       }
     });
 
-    // 4) Preparamos la DataTable para el OrgChart
+    // 5) Preparamos la DataTable para el OrgChart
     const data = new google.visualization.DataTable();
     data.addColumn('string','Name');
     data.addColumn('string','Parent');
     data.addColumn('boolean','IsMirror');
 
-    // 5) Función recursiva
+    // 6) Función recursiva que pone:
+    //    • Cada nodo “original” (isMirror=false)
+    //    • Luego sus espejos debajo del espejo correspondiente de su abuelo
     function recurse(id) {
       const node = nodes[id];
-      // Nodo “original”
-      data.addRow([node.id, node.chartParent, false]);
+      // 6.1 Nodo normal
+      data.addRow([ node.id, node.parent, false ]);
 
-      // Espejos bajo espejo correspondiente de su abuelo
+      // 6.2 Espejos: los ponemos bajo el espejo i-ésimo del abuelo
       node.mirrors.forEach((mid, i) => {
-        const padre         = nodes[node.parent];
-        const abueloEspejo  = padre && padre.mirrors[i];
-        const parentMirror  = abueloEspejo || node.parent;
-        data.addRow([mid, parentMirror, true]);
+        const abuelo = nodes[node.parent];
+        // el i-ésimo espejo del abuelo
+        const abueloEspejo = (abuelo && abuelo.mirrors[i]) || node.parent;
+        data.addRow([ mid, abueloEspejo, true ]);
       });
 
-      // Hijos “normales”
+      // 6.3 Hijos “reales”
       node.children.forEach(childId => recurse(childId));
     }
 
-    // 6) Arrancamos desde la raíz
+    // 7) Arrancamos desde la raíz (aquí tu usuario “7”)
     recurse('7');
 
-    // 7) Dibujamos
+    // 8) Dibujamos el org chart
     const chart = new google.visualization.OrgChart(chartDiv);
-    chart.draw(data, {allowHtml:true});
+    chart.draw(data, { allowHtml:true });
     errorDiv.textContent = '';
   });
 }
