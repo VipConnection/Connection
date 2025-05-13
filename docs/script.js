@@ -4,7 +4,7 @@ google.charts.setOnLoadCallback(drawChart);
 
 async function drawChart() {
   const sheetId   = '1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs';
-  const sheetName = 'UsuariosDiamond';
+  const sheetName = 'Respuestas Diamond';
 
   // <-- Aquí es donde agregamos "&range=A1:L"
   const queryUrl  =
