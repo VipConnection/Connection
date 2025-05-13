@@ -1,84 +1,78 @@
-// script.js
 google.charts.load('current',{packages:['orgchart']});
 google.charts.setOnLoadCallback(drawChart);
 
 async function drawChart() {
   const sheetId   = '1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs';
-  const sheetName = 'UsusariosDiamond';
+  const sheetGid  = '0';           // el GID de tu pestaña "Respuestas Diamond"
+  const errorDiv  = document.getElementById('error');
+  const chartDiv  = document.getElementById('chart_div');
 
-  // 1) Forzamos SELECT A→L en el query
-  const query = 'SELECT A,B,C,D,E,F,G,H,I,J,K,L OFFSET 1';
-  const queryUrl =
-    `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq`
-    + `?sheet=${encodeURIComponent(sheetName)}`
-    + `&tq=${encodeURIComponent(query)}`;
-
-  const errorDiv = document.getElementById('error');
-  const chartDiv = document.getElementById('chart_div');
   errorDiv.textContent = 'Cargando datos…';
-
   try {
-    // 2) Fetch + parse
-    console.log('fetching:', queryUrl);
-    const res  = await fetch(queryUrl);
-    const txt  = await res.text();
-    const json = JSON.parse(
-      txt.slice(txt.indexOf('(')+1, txt.lastIndexOf(')'))
-    );
+    // 1) Traer CSV completo (columnas A→L)
+    const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export`
+                 + `?format=csv&gid=${sheetGid}`;
+    console.log('fetching CSV:', csvUrl);
+    const res     = await fetch(csvUrl);
+    const text    = await res.text();
+    const allRows = text.trim().split('\n').map(r => r.split(','));
 
-    // 3) Columns & rows
-    const cols = json.table.cols.map(c=>c.label);
-    const rows = json.table.rows.map(r =>
-      r.c.map(cell => cell && cell.v!==null ? cell.v : '')
-    );
-    console.log(`✅ DataTable columns: ${cols.length}, rows: ${rows.length}`);
+    // 2) Separar encabezado + datos
+    const header = allRows[0];             // ['Marca temporal','Tu propio ID',...,'Espejo 9']
+    const rows   = allRows.slice(1)
+      // Opcional: filtrar líneas en blanco
+      .filter(r => r[2] !== '');
 
-    // 4) Montamos el mapa id→node
+    // 3) Build mapa id→{ parent, mirrors[] }
+    //    * parent = columna C
+    //    * mirrors = col D→L
     const map = new Map();
     rows.forEach(r => {
-      const id      = String(r[1]);
-      const parent  = String(r[2]);
-      // mirrors vendrán en r[3]..r[11] (9 espejos)
-      const mirrors = r.slice(3,12).map(String).filter(x=>x!=='');
-      map.set(id, { id, parent, mirrors });
+      const id      = r[1].trim();       // Tu propio ID (col B)
+      const parent  = r[2].trim();       // ID de quien te invita (col C)
+      const mirrors = r.slice(3,12).map(v=>v.trim()).filter(v=>v!=='');
+      map.set(id,{ parent, mirrors });
     });
 
-    // 5) Prepara filas de salida
-    const output = [['UserID','ParentID','isMirror','Nivel','ParentForChart']];
+    // 4) Construir tabla para el OrgChart
+    //    columnas: [UserID, ParentID, isMirror, Nivel, ParentForChart]
+    const table = [];
+    table.push(['UserID','ParentID','isMirror','Nivel','ParentForChart']);
 
-    // 5a) Nodos “raíz” (sin parent en el mapa)
-    map.forEach(node => {
+    // 4a) Primero los “raíz” (sin padre en el mapa)
+    map.forEach((node,id) => {
       if (!map.has(node.parent)) {
-        output.push([node.id,'',false,0,'']);
+        table.push([ id,'', false, 0,'' ]);
       }
     });
 
-    // 5b) Nodos “normales” (con parent)
-    map.forEach(node => {
+    // 4b) Luego los hijos directos
+    map.forEach((node,id) => {
       if (map.has(node.parent)) {
-        output.push([node.id,node.parent,false,0,node.parent]);
+        table.push([ id, node.parent, false, 0, node.parent ]);
       }
     });
 
-    // 5c) Espejos: cada mirror bajo el espejo correspondiente del abuelo
-    map.forEach(node => {
-      node.mirrors.forEach((mId, idx) => {
-        // parentMirrors = los mirrors del padre (el abuelo de este espejo)
-        const pm = map.get(node.parent)?.mirrors || [];
-        // chartParent: espejo idx del abuelo, o si no, el parent normal
-        const chartParent = pm[idx] || node.parent;
-        output.push([mId, node.id, true, 1, chartParent]);
+    // 4c) Por último los *espejos*, cada uno bajo el espejo i del abuelo
+    map.forEach((node,id) => {
+      node.mirrors.forEach((mid,i) => {
+        // espejos del abuelo:
+        const pmirrors = map.get(node.parent)?.mirrors || [];
+        // Si el abuelo tiene espejo en la misma posición i, lo usas;
+        // si no, cuelga del parent "normal"
+        const chartParent = pmirrors[i] || node.parent;
+        table.push([ mid, id, true, 1, chartParent ]);
       });
     });
 
-    // 6) Dibuja el orgchart
+    // 5) Dibujar con Google Charts
     const data = new google.visualization.DataTable();
     data.addColumn('string','UserID');
     data.addColumn('string','ParentID');
     data.addColumn('boolean','isMirror');
     data.addColumn('number','Nivel');
     data.addColumn('string','ParentForChart');
-    data.addRows(output.slice(1));
+    data.addRows(table.slice(1));
 
     new google.visualization.OrgChart(chartDiv)
       .draw(data,{allowHtml:true,nodeClass:'org-node'});
