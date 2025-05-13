@@ -2,7 +2,7 @@
 
 // ID de tu spreadsheet y nombre de la hoja RespuestasDiamond
 const SPREADSHEET_ID   = '1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs';
-const SHEET_NAME       = 'RespuestasDiamond';
+const SHEET_NAME       = 'UsuariosDiamond';
 const CSV_ENDPOINT     = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(SHEET_NAME)}`;
 
 async function drawChart() {
