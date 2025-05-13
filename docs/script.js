@@ -1,33 +1,43 @@
 // script.js
-google.charts.load('current',{packages:['orgchart']});
+google.charts.load('current',{packages:['corechart','orgchart']});
 google.charts.setOnLoadCallback(drawChart);
 
-async function drawChart() {
+function drawChart() {
   const sheetId  = '1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs';
-  const sheetGid = '0';  // ← GID de la hoja UsuariosDiamond
-  const csvUrl   = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${sheetGid}`;
-  const errorDiv = document.getElementById('error');
-  try {
-    // 1) Traemos el CSV y lo parseamos en filas
-    const res  = await fetch(csvUrl);
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const text = await res.text();
-    const rows = text.trim().split('\n').map(r => r.split(','));
+  const sheetName = 'UsuariosDiamond';       // nombre de tu pestaña final
+  const queryStr = encodeURIComponent(`SELECT A,B,C,D,E`);
+  const queryUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?sheet=${sheetName}&tq=${queryStr}`;
 
-    // 2) Montamos un mapa de nodos { id → { id, parent, isMirror, chartParent, mirrors[], children[] } }
+  const errorDiv = document.getElementById('error');
+  const chartDiv = document.getElementById('chart_div');
+
+  // lanzamos una query
+  const query = new google.visualization.Query(queryUrl);
+  query.send(response => {
+    if (response.isError()) {
+      errorDiv.textContent = 'Error cargando datos: ' + response.getMessage();
+      return;
+    }
+    // 1) Tenemos ya una DataTable limpia
+    const dt = response.getDataTable();
+
+    // 2) Montamos nuestro mapa de nodos
     const nodes = {};
-    // cabecera: [UserID, ParentID, isMirror, Level, ParentForChart]
-    rows.slice(1).forEach(fields => {
-      const id       = fields[0];
-      const parent   = fields[4];
-      const isMirror = (fields[2].toUpperCase() === 'TRUE');
-      nodes[id] = nodes[id] || { id, parent, isMirror, chartParent: null, mirrors: [], children: [] };
-      // para los normales: chartParent = ParentForChart (ya lo calculaste en Apps Script)
-      if (!isMirror) {
-        nodes[id].chartParent = parent;
-      }
-    });
-    // 3) Rellenamos arrays de mirrors (espejos) y children
+    // Recorremos todas las filas
+    for (let r = 0; r < dt.getNumberOfRows(); r++) {
+      const id         = dt.getValue(r, 0) + '';
+      const parent     = dt.getValue(r, 4) + '';
+      const isMirror   = !!dt.getValue(r, 2);
+      nodes[id] = {
+        id,
+        parent,
+        isMirror,
+        chartParent: isMirror ? null : parent,
+        mirrors: [],
+        children: []
+      };
+    }
+    // 3) Rellenamos mirrors y children
     Object.values(nodes).forEach(node => {
       if (node.isMirror) {
         const p = nodes[node.parent];
@@ -38,43 +48,36 @@ async function drawChart() {
       }
     });
 
-    // 4) Creamos la DataTable de Google Charts
+    // 4) Preparamos la DataTable para el OrgChart
     const data = new google.visualization.DataTable();
     data.addColumn('string','Name');
     data.addColumn('string','Parent');
     data.addColumn('boolean','IsMirror');
 
-    // 5) Recorremos recursivamente desde la raíz ('7') inyectando:
-    //    - cada nodo normal bajo su chartParent
-    //    - cada espejo bajo el espejo correspondiente del padre
+    // 5) Función recursiva
     function recurse(id) {
       const node = nodes[id];
-      // fila del nodo “original” (no espejo)
-      data.addRow([ node.id, node.chartParent, false ]);
+      // Nodo “original”
+      data.addRow([node.id, node.chartParent, false]);
 
-      // filas de sus espejos: uno a uno, ubicándolos bajo
-      // el espejo “coincidente” de su abuelo
+      // Espejos bajo espejo correspondiente de su abuelo
       node.mirrors.forEach((mid, i) => {
-        const padre       = nodes[node.parent];
-        const abueloEspejo = padre && padre.mirrors[i];
-        // si abueloEspejo existe, lo usamos; si no, caemos en node.parent
-        const parentForMirror = abueloEspejo || node.parent;
-        data.addRow([ mid, parentForMirror, true ]);
+        const padre         = nodes[node.parent];
+        const abueloEspejo  = padre && padre.mirrors[i];
+        const parentMirror  = abueloEspejo || node.parent;
+        data.addRow([mid, parentMirror, true]);
       });
 
-      // y ahora los hijos “normales”
+      // Hijos “normales”
       node.children.forEach(childId => recurse(childId));
     }
 
-    // arrancamos desde tu ID raíz (7)
+    // 6) Arrancamos desde la raíz
     recurse('7');
 
-    // 6) Dibujamos el OrgChart
-    const chart = new google.visualization.OrgChart(document.getElementById('chart_div'));
-    chart.draw(data, { allowHtml: true });
-    errorDiv.textContent = '';  // limpia posible error previo
-
-  } catch (err) {
-    errorDiv.textContent = 'Error cargando datos: ' + err.message;
-  }
+    // 7) Dibujamos
+    const chart = new google.visualization.OrgChart(chartDiv);
+    chart.draw(data, {allowHtml:true});
+    errorDiv.textContent = '';
+  });
 }
