@@ -3,69 +3,67 @@ google.charts.setOnLoadCallback(drawChart);
 
 async function drawChart() {
   const sheetId   = '1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs';
-  const sheetGid  = '0';           // el GID de tu pestaña "Respuestas Diamond"
+  const sheetGid  = '831917774';   // <<– asegúrate de poner aquí el GID **exacto** de la pestaña “Respuestas Diamond”
   const errorDiv  = document.getElementById('error');
   const chartDiv  = document.getElementById('chart_div');
 
   errorDiv.textContent = 'Cargando datos…';
   try {
-    // 1) Traer CSV completo (columnas A→L)
+    // 1) Traer CSV completo (A→L)
     const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export`
                  + `?format=csv&gid=${sheetGid}`;
     console.log('fetching CSV:', csvUrl);
     const res     = await fetch(csvUrl);
     const text    = await res.text();
     const allRows = text.trim().split('\n').map(r => r.split(','));
+    console.log('filas totales:', allRows.length);
 
-    // 2) Separar encabezado + datos
-    const header = allRows[0];             // ['Marca temporal','Tu propio ID',...,'Espejo 9']
+    // 2) Separa encabezado y datos, filtrando filas vacías
+    const header = allRows[0];
     const rows   = allRows.slice(1)
-      // Opcional: filtrar líneas en blanco
-      .filter(r => r[2] !== '');
+      .filter(r => r[1].trim() !== '' && r[2].trim() !== '');  // B y C no vacíos
 
-    // 3) Build mapa id→{ parent, mirrors[] }
-    //    * parent = columna C
-    //    * mirrors = col D→L
+    console.log('filas útiles:', rows.length);
+
+    // 3) Mapa id → { parent, mirrors[] }
     const map = new Map();
     rows.forEach(r => {
-      const id      = r[1].trim();       // Tu propio ID (col B)
-      const parent  = r[2].trim();       // ID de quien te invita (col C)
-      const mirrors = r.slice(3,12).map(v=>v.trim()).filter(v=>v!=='');
+      const id      = r[1].trim();          // col B
+      const parent  = r[2].trim();          // col C
+      const mirrors = r.slice(3,12)         // col D→L
+                       .map(v=>v.trim())
+                       .filter(v=>v !== '');
       map.set(id,{ parent, mirrors });
     });
 
-    // 4) Construir tabla para el OrgChart
-    //    columnas: [UserID, ParentID, isMirror, Nivel, ParentForChart]
+    // 4) Construye tabla OrgChart
     const table = [];
     table.push(['UserID','ParentID','isMirror','Nivel','ParentForChart']);
 
-    // 4a) Primero los “raíz” (sin padre en el mapa)
+    // 4a) raíces (sin padre en el mapa)
     map.forEach((node,id) => {
       if (!map.has(node.parent)) {
         table.push([ id,'', false, 0,'' ]);
       }
     });
 
-    // 4b) Luego los hijos directos
+    // 4b) hijos directos
     map.forEach((node,id) => {
       if (map.has(node.parent)) {
         table.push([ id, node.parent, false, 0, node.parent ]);
       }
     });
 
-    // 4c) Por último los *espejos*, cada uno bajo el espejo i del abuelo
+    // 4c) espejos: cada espejo i del hijo bajo espejo i del abuelo
     map.forEach((node,id) => {
       node.mirrors.forEach((mid,i) => {
-        // espejos del abuelo:
-        const pmirrors = map.get(node.parent)?.mirrors || [];
-        // Si el abuelo tiene espejo en la misma posición i, lo usas;
-        // si no, cuelga del parent "normal"
-        const chartParent = pmirrors[i] || node.parent;
+        const gp = map.get(node.parent);
+        const chartParent = (gp && gp.mirrors[i]) ? gp.mirrors[i] : node.parent;
         table.push([ mid, id, true, 1, chartParent ]);
       });
     });
 
-    // 5) Dibujar con Google Charts
+    // 5) Dibuja
     const data = new google.visualization.DataTable();
     data.addColumn('string','UserID');
     data.addColumn('string','ParentID');
