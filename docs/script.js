@@ -4,7 +4,7 @@ google.charts.setOnLoadCallback(drawChart);
 
 async function drawChart() {
   const sheetId   = '1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs';
-  const sheetName = 'RespuestasDiamond';
+  const sheetName = 'UsusariosDiamond';
 
   // 1) Forzamos SELECT A→L en el query
   const query = 'SELECT A,B,C,D,E,F,G,H,I,J,K,L OFFSET 1';
