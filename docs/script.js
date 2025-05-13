@@ -1,58 +1,56 @@
-// script.js
+// 0) Cargamos Google Charts
+google.charts.load('current', { packages: ['orgchart'] });
+google.charts.setOnLoadCallback(drawChart);
 
-// 1) Función principal para dibujar el organigrama
 async function drawChart() {
-  const sheetId  = '1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs';  // tu ID de Spreadsheet
-  const sheetGid = '0';      // <--- AQUÍ: el GID de la pestaña "UsuariosDiamond"
+  const sheetId  = '1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs'; // tu ID de Spreadsheet
+  const sheetGid = '0';  // GID de la pestaña "UsuariosDiamond"
   const csvUrl   = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${sheetGid}`;
-
+  
   const errorDiv = document.getElementById('error');
   const chartDiv = document.getElementById('gráfico_div');
-
+  
   try {
     console.log('Fetching CSV:', csvUrl);
     const resp = await fetch(csvUrl);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const text = await resp.text();
-
-    // 2) Parse CSV a matriz y extraer cabecera
-    const rows    = text.trim().split('\n').map(r => r.split(','));
-    const headers = rows.shift().map(h => h.trim());
+    
+    // 1) Parsear CSV en matriz de filas
+    const rowsRaw = text.trim().split('\n').map(r => r.split(','));
+    const headers = rowsRaw.shift().map(h => h.trim());
     console.log('Cabecera CSV:', headers);
-
-    // 3) Crear DataTable con las 5 columnas fijas
+    
+    // 2) Sólo filas donde el UserID no esté vacío
+    const filas = rowsRaw.filter(r => r[0].trim() !== '');
+    console.log('Filas totales:', rowsRaw.length, 'filas útiles:', filas.length);
+    
+    // 3) Crear DataTable explícito con las 5 columnas fijas
     const data = new google.visualization.DataTable();
     data.addColumn('string',  'UserID');
     data.addColumn('string',  'ParentID');
     data.addColumn('boolean', 'isMirror');
     data.addColumn('number',  'Level');
     data.addColumn('string',  'ParentForChart');
-
-    // 4) Rellenar filas útiles
-    const useful = rows.filter(r => r[0] !== '');
-    console.log('Filas totales:', rows.length, 'filas útiles:', useful.length);
-
-    useful.forEach(r => {
+    
+    // 4) Llenar DataTable
+    filas.forEach(r => {
       data.addRow([
         r[0],                        // UserID
         r[1],                        // ParentID
         r[2].toLowerCase()==='true', // isMirror
-        Number(r[3])||0,             // Level
+        Number(r[3]) || 0,           // Level
         r[4]                         // ParentForChart
       ]);
     });
-
+    
     // 5) Dibujar el OrgChart
     new google.visualization.OrgChart(chartDiv)
       .draw(data, { allowHtml: true });
-
-    errorDiv.textContent = '';
-  } catch (err) {
-    console.error(err);
-    errorDiv.textContent = `Error cargando datos: ${err.message}`;
+    
+    errorDiv.textContent = '';  // ya no hay error
+  } catch (e) {
+    console.error(e);
+    errorDiv.textContent = `Error cargando datos: ${e.message}`;
   }
 }
-
-// 0) Cargar la librería y lanzar
-google.charts.load('current', { packages: ['orgchart'] });
-google.charts.setOnLoadCallback(drawChart);
