@@ -4,21 +4,21 @@ google.charts.setOnLoadCallback(drawChart);
 
 async function drawChart() {
   const sheetId   = '1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs';
-  const sheetName = 'Respuestas Diamond';
+  const sheetName = 'RespuestasDiamond';
 
-  // <-- Aquí es donde agregamos "&range=A1:L"
-  const queryUrl  =
+  // 1) Forzamos SELECT A→L en el query
+  const query = 'SELECT A,B,C,D,E,F,G,H,I,J,K,L OFFSET 1';
+  const queryUrl =
     `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq`
     + `?sheet=${encodeURIComponent(sheetName)}`
-    + `&range=${encodeURIComponent('A1:L')}`
-    + `&tq=${encodeURIComponent('SELECT * OFFSET 1')}`;
+    + `&tq=${encodeURIComponent(query)}`;
 
   const errorDiv = document.getElementById('error');
   const chartDiv = document.getElementById('chart_div');
   errorDiv.textContent = 'Cargando datos…';
 
   try {
-    // 1) Fetch + parse gviz
+    // 2) Fetch + parse
     console.log('fetching:', queryUrl);
     const res  = await fetch(queryUrl);
     const txt  = await res.text();
@@ -26,51 +26,52 @@ async function drawChart() {
       txt.slice(txt.indexOf('(')+1, txt.lastIndexOf(')'))
     );
 
-    // 2) Extract cols/rows
+    // 3) Columns & rows
     const cols = json.table.cols.map(c=>c.label);
     const rows = json.table.rows.map(r =>
-      r.c.map(cell => cell ? cell.v : '')
+      r.c.map(cell => cell && cell.v!==null ? cell.v : '')
     );
-    console.log('✅ Response OK – DataTable columns:', cols.length, 'rows:', rows.length);
+    console.log(`✅ DataTable columns: ${cols.length}, rows: ${rows.length}`);
 
-    // 3) Build id→node map
+    // 4) Montamos el mapa id→node
     const map = new Map();
     rows.forEach(r => {
       const id      = String(r[1]);
       const parent  = String(r[2]);
+      // mirrors vendrán en r[3]..r[11] (9 espejos)
       const mirrors = r.slice(3,12).map(String).filter(x=>x!=='');
-      map.set(id, { id, parent, mirrors, level: mirrors.length>0 ? 1 : 0 });
+      map.set(id, { id, parent, mirrors });
     });
 
-    // 4) Build output array
+    // 5) Prepara filas de salida
     const output = [['UserID','ParentID','isMirror','Nivel','ParentForChart']];
 
-    // 4.1) nodos “normales”
+    // 5a) Nodos “raíz” (sin parent en el mapa)
     map.forEach(node => {
       if (!map.has(node.parent)) {
         output.push([node.id,'',false,0,'']);
       }
     });
+
+    // 5b) Nodos “normales” (con parent)
     map.forEach(node => {
       if (map.has(node.parent)) {
         output.push([node.id,node.parent,false,0,node.parent]);
       }
     });
 
-    // 4.2) espejos bajo el espejo correspondiente del abuelo
+    // 5c) Espejos: cada mirror bajo el espejo correspondiente del abuelo
     map.forEach(node => {
-      if (!node.mirrors.length) return;
-      // fila del padre original en output
-      const pr = output.findIndex(r => r[0]===node.parent && r[2]===false);
-      if (pr<0) return;
       node.mirrors.forEach((mId, idx) => {
-        const padreMirrors = map.get(node.parent)?.mirrors || [];
-        const chartParent  = padreMirrors[idx] || node.parent;
-        output.push([ mId, node.id, true, 1, chartParent ]);
+        // parentMirrors = los mirrors del padre (el abuelo de este espejo)
+        const pm = map.get(node.parent)?.mirrors || [];
+        // chartParent: espejo idx del abuelo, o si no, el parent normal
+        const chartParent = pm[idx] || node.parent;
+        output.push([mId, node.id, true, 1, chartParent]);
       });
     });
 
-    // 5) Dibujo
+    // 6) Dibuja el orgchart
     const data = new google.visualization.DataTable();
     data.addColumn('string','UserID');
     data.addColumn('string','ParentID');
@@ -79,8 +80,9 @@ async function drawChart() {
     data.addColumn('string','ParentForChart');
     data.addRows(output.slice(1));
 
-    const chart = new google.visualization.OrgChart(chartDiv);
-    chart.draw(data,{allowHtml:true,nodeClass:'org-node'});
+    new google.visualization.OrgChart(chartDiv)
+      .draw(data,{allowHtml:true,nodeClass:'org-node'});
+
     errorDiv.textContent = '';
 
   } catch(err) {
