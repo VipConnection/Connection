@@ -2,8 +2,8 @@
 
 // 1) Función principal para dibujar el organigrama
 async function drawChart() {
-  const sheetId = '1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cb';    // tu ID de Spreadsheet
-  const sheetGid = '539807990';                                     // el GID de la pestaña "RespuestasDiamond"
+  const sheetId = '1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs';    // tu ID de Spreadsheet
+  const sheetGid = '0';                                     // el GID de la pestaña "RespuestasDiamond"
   const csvUrl   = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${sheetGid}`;
 
   const errorDiv = document.getElementById('error');
