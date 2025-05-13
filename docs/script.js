@@ -1,102 +1,77 @@
 // script.js
 
-// ID de tu spreadsheet y nombre de la hoja RespuestasDiamond
-const SPREADSHEET_ID   = '1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs';
-const SHEET_NAME       = 'UsuariosDiamond';
-const CSV_ENDPOINT     = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(SHEET_NAME)}`;
+// URL de tu hoja UsuariosDiamond en formato CSV
+const CSV_URL = 'https://docs.google.com/spreadsheets/d/1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs/export?format=csv&gid=0';
 
 async function drawChart() {
-  const errDiv = document.getElementById('error');
-  const div     = document.getElementById('gráfico_div');
-  errDiv.textContent = 'Cargando datos…';
+  const errorDiv = document.getElementById('error');
+  const container = document.getElementById('gráfico_div');
+  errorDiv.textContent = 'Cargando datos…';
   try {
-    console.log('fetching:', CSV_ENDPOINT);
-    const res = await fetch(CSV_ENDPOINT);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const text = await res.text();
-    const rows = text.trim().split('\n').map(r => r.split(','));
-    const headers = rows.shift().map(h => h.trim());
-    console.log('Cabecera CSV:', headers);
+    // 1) Traemos el CSV
+    console.log('fetching:', CSV_URL);
+    const resp = await fetch(CSV_URL);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const text = await resp.text();
 
-    // 1) Encuentra índices
-    const idxId     = headers.indexOf('Tu propio ID');
-    const idxDad    = headers.indexOf('ID de quien te invita');
-    const mirrorIdx = headers.map((h,i) =>
-      h.startsWith('Espejo') ? i : -1
-    ).filter(i => i >= 0);
-    if (idxId<0 || idxDad<0 || mirrorIdx.length===0) {
+    // 2) Lo parseamos a matriz
+    const rows = text
+      .trim()
+      .split('\n')
+      .map(line => line.split(',').map(cell => cell.trim()));
+
+    // 3) Extraemos cabecera e índices
+    const headers = rows[0];
+    const idxUser   = headers.indexOf('UserID');
+    const idxParent = headers.indexOf('ParentForChart');
+    const idxMirror = headers.indexOf('isMirror');
+    const idxLevel  = headers.indexOf('Level');
+    if ([idxUser, idxParent, idxMirror, idxLevel].some(i => i < 0)) {
       throw new Error('Faltan columnas clave en CSV');
     }
+    console.log('Cabecera CSV:', headers);
 
-    // 2) Filtra y construye mapa { id→node }
-    const originals = [];
-    const map = {};
-    rows.forEach(r => {
-      const id   = r[idxId].trim();
-      const dad  = r[idxDad].trim();
-      if (!id || !dad) return;
-      originals.push(id);
-      const mirrors = mirrorIdx.map(i => r[i].trim()).filter(v => v);
-      map[id] = { id, parent: dad, mirrors, level: null, chartParent: null };
-    });
+    // 4) Filtramos filas útiles (descartamos la cabecera y filas sin ID)
+    const dataRows = rows
+      .slice(1)
+      .filter(r => r[idxUser] !== '');
 
-    // 3) Recursión para level/chartParent
-    function setNode(id) {
-      const node = map[id];
-      if (!node || node.level !== null) return;
-      const p = map[node.parent];
-      if (!p) {
-        node.level = 0;
-        node.chartParent = '';
-      } else {
-        setNode(p.id);
-        node.level = p.level + 1;
-        node.chartParent = p.id;
-      }
-      // añade espejos al mapa
-      node.mirrors.forEach(m => {
-        map[m] = map[m] || { id: m, parent: node.id, mirrors: [], level: null, chartParent: null };
-        setNode(m);
-      });
-    }
-    Object.keys(map).forEach(setNode);
+    console.log('Filas totales:', rows.length - 1,
+                'filas útiles:', dataRows.length);
 
-    // 4) Monta DataTable rows:
-    //   - Primero nodos originales (isMirror=false)
-    //   - Luego espejos (isMirror=true), y su ParentForChart = espejo correspondiente de chartParent padre
-    const data = [];
-    data.push(['UserID','ParentID','isMirror','Level','ParentForChart']);
-    originals.forEach(id => {
-      const n = map[id];
-      data.push([n.id, n.parent, false, n.level, n.chartParent]);
-    });
-    originals.forEach(id => {
-      const parentNode = map[id];
-      parentNode.mirrors.forEach((m, i) => {
-        const mirrorNode = map[m];
-        // encuentra el espejo "abuelo" en la lista de mirrors del abuelo:
-        const grandpa = map[parentNode.parent];
-        let gpMirror = parentNode.parent; // fallback: directamente el padre
-        if (grandpa && grandpa.mirrors[i]) {
-          gpMirror = grandpa.mirrors[i];
-        }
-        data.push([m, parentNode.id, true, mirrorNode.level, gpMirror]);
-      });
-    });
+    // 5) Creamos la DataTable con sólo dos columnas (ID y padre)
+    const dataArray = [
+      // encabezado para arrayToDataTable
+      ['UserID', 'ParentID', 'Tooltip']
+    ].concat(
+      dataRows.map(r => {
+        const id      = r[idxUser];
+        const parent  = r[idxParent] || null;
+        const isMirror = r[idxMirror].toLowerCase() === 'true';
+        // para que al pasar el tooltip muestre "ID + (m)" si es espejo
+        const tooltip = isMirror ? `${id} (m)` : id;
+        return [ id, parent, tooltip ];
+      })
+    );
 
-    // Dibuja el chart
-    google.charts.load('current', {packages:['orgchart']});
+    // 6) Dibujamos con la API de Google OrgChart
+    google.charts.load('current', { packages: ['orgchart'] });
     google.charts.setOnLoadCallback(() => {
-      const dataTable = google.visualization.arrayToDataTable(data);
-      const chart = new google.visualization.OrgChart(div);
-      chart.draw(dataTable, {allowHtml:true, nodeClass:'node'});
-      errDiv.textContent = '';
+      const data = google.visualization.arrayToDataTable(dataArray);
+      const chart = new google.visualization.OrgChart(container);
+      chart.draw(data, {
+        allowHtml: true,
+        nodeClass: 'node',
+        tooltip: { isHtml: false }
+      });
+      errorDiv.textContent = '';
     });
 
-  } catch (e) {
-    errDiv.textContent = `Error cargando datos: ${e.message}`;
-    console.error(e);
+  } catch (err) {
+    console.error(err);
+    errorDiv.textContent = 'Error cargando datos: ' + err.message;
   }
 }
 
-window.addEventListener('DOMContentLoaded', drawChart);
+// empezamos
+drawChart();
