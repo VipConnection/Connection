@@ -1,60 +1,60 @@
 // script.js
 
-// URL de tu hoja UsuariosDiamond en formato CSV
+// 1) Pon aquí la URL CSV de tu pestaña UsuariosDiamond
 const CSV_URL = 'https://docs.google.com/spreadsheets/d/1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs/export?format=csv&gid=0';
 
 async function drawChart() {
   const errorDiv = document.getElementById('error');
   const container = document.getElementById('gráfico_div');
   errorDiv.textContent = 'Cargando datos…';
+
   try {
-    // 1) Traemos el CSV
+    // 2) Fetch + texto
     console.log('fetching:', CSV_URL);
     const resp = await fetch(CSV_URL);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const text = await resp.text();
+    const csvText = await resp.text();
 
-    // 2) Lo parseamos a matriz
-    const rows = text
+    // 3) Parse CSV muy simple (nada de comillas especiales)
+    const rows = csvText
       .trim()
-      .split('\n')
-      .map(line => line.split(',').map(cell => cell.trim()));
+      .split(/\r?\n/)
+      .map(line => line.split(',').map(cell => cell.replace(/^"|"$/g, '').trim()));
 
-    // 3) Extraemos cabecera e índices
+    // 4) Cabecera y detección flexible de índices:
     const headers = rows[0];
-    const idxUser   = headers.indexOf('UserID');
-    const idxParent = headers.indexOf('ParentForChart');
-    const idxMirror = headers.indexOf('isMirror');
-    const idxLevel  = headers.indexOf('Level');
+    console.log('Cabecera CSV:', headers);
+    const idxUser   = headers.findIndex(h => h.toLowerCase().replace(/\s/g,'') === 'userid');
+    const idxParent = headers.findIndex(h => /parentforchar/i.test(h));
+    const idxMirror = headers.findIndex(h => h.toLowerCase().replace(/\s/g,'') === 'ismirror');
+    const idxLevel  = headers.findIndex(h => h.toLowerCase().replace(/\s/g,'') === 'level');
+
     if ([idxUser, idxParent, idxMirror, idxLevel].some(i => i < 0)) {
       throw new Error('Faltan columnas clave en CSV');
     }
-    console.log('Cabecera CSV:', headers);
 
-    // 4) Filtramos filas útiles (descartamos la cabecera y filas sin ID)
+    // 5) Filtramos sólo filas con ID no vacío
     const dataRows = rows
       .slice(1)
       .filter(r => r[idxUser] !== '');
 
-    console.log('Filas totales:', rows.length - 1,
-                'filas útiles:', dataRows.length);
+    console.log(`Filas totales: ${rows.length - 1}, filas útiles: ${dataRows.length}`);
 
-    // 5) Creamos la DataTable con sólo dos columnas (ID y padre)
+    // 6) Armamos el array para arrayToDataTable (ID, ParentID, Tooltip)
     const dataArray = [
-      // encabezado para arrayToDataTable
       ['UserID', 'ParentID', 'Tooltip']
     ].concat(
       dataRows.map(r => {
-        const id      = r[idxUser];
-        const parent  = r[idxParent] || null;
-        const isMirror = r[idxMirror].toLowerCase() === 'true';
-        // para que al pasar el tooltip muestre "ID + (m)" si es espejo
-        const tooltip = isMirror ? `${id} (m)` : id;
+        const id       = r[idxUser];
+        const parent   = r[idxParent] || null;
+        const isMirror = /^true$/i.test(r[idxMirror]);
+        // Si es espejo, añadimos “(m)” al tooltip
+        const tooltip  = isMirror ? `${id} (m)` : `${id}`;
         return [ id, parent, tooltip ];
       })
     );
 
-    // 6) Dibujamos con la API de Google OrgChart
+    // 7) Cargamos Google Charts y dibujamos
     google.charts.load('current', { packages: ['orgchart'] });
     google.charts.setOnLoadCallback(() => {
       const data = google.visualization.arrayToDataTable(dataArray);
@@ -62,7 +62,7 @@ async function drawChart() {
       chart.draw(data, {
         allowHtml: true,
         nodeClass: 'node',
-        tooltip: { isHtml: false }
+        tooltip:   { isHtml: false }
       });
       errorDiv.textContent = '';
     });
@@ -73,5 +73,6 @@ async function drawChart() {
   }
 }
 
-// empezamos
+// Arranca
 drawChart();
+
