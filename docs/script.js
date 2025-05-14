@@ -1,7 +1,6 @@
-// script.js
-
-// → Sustituye el gid por el de tu pestaña "UsuariosDiamond"
-const CSV_URL = 'https://docs.google.com/spreadsheets/d/1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs/export?format=csv&gid=TU_GID_USUARIOS';
+// → Asegúrate de que éste sea el gid de tu hoja UsuariosDiamond:
+const CSV_URL =
+  'https://docs.google.com/spreadsheets/d/1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs/export?format=csv&gid=0';
 
 async function drawChart() {
   const errorDiv  = document.getElementById('error');
@@ -14,7 +13,7 @@ async function drawChart() {
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const csvText = await resp.text();
 
-    // parse muy simple (no comillas multilínea)
+    // parse muy simple de CSV (sin comillas multilínea)
     const rows = csvText
       .trim()
       .split(/\r?\n/)
@@ -23,42 +22,60 @@ async function drawChart() {
     const headers = rows[0];
     console.log('Cabecera CSV:', headers);
 
-    // detectamos índices *exactos*
-    const idxUser         = headers.indexOf('UserID');
-    const idxParentChart  = headers.indexOf('ParentForChart');
-    const idxIsMirror     = headers.indexOf('isMirror');
-    const idxLevel        = headers.indexOf('Level');
+    // detectamos índices
+    const idxUser        = headers.indexOf('UserID');
+    const idxParentChart = headers.indexOf('ParentForChart');
+    const idxIsMirror    = headers.indexOf('isMirror');
+    const idxLevel       = headers.indexOf('Level');
+    const idxName        = headers.indexOf('Nombre');
+    const idxSurname     = headers.indexOf('Apellidos');
 
-    if ([idxUser, idxParentChart, idxIsMirror, idxLevel].some(i => i < 0)) {
+    if ([idxUser, idxParentChart, idxIsMirror, idxLevel, idxName, idxSurname]
+        .some(i => i < 0)) {
       throw new Error('Faltan columnas clave en CSV');
     }
 
-    const dataRows = rows.slice(1).filter(r => r[idxUser] !== '');
+    // descartamos filas en blanco
+    const dataRows = rows
+      .slice(1)
+      .filter(r => r[idxUser] !== '');
 
-    console.log(`Filas totales: ${rows.length -1}, filas útiles: ${dataRows.length}`);
+    console.log(
+      `Filas totales: ${rows.length -1}, filas útiles: ${dataRows.length}`
+    );
 
-    // Preparamos sólo las tres columnas que OrgChart necesita
+    // Preparamos el array para OrgChart: etiqueta HTML + padre
     const dataArray = [
-      ['UserID','ParentID','Tooltip']
+      // la primera columna es el texto que se muestra en el nodo,
+      // la segunda es el _parent_, la tercera es su tooltip (igual al label)
+      ['Name','Parent','Tooltip']
     ].concat(
       dataRows.map(r => {
         const id       = r[idxUser];
         const parent   = r[idxParentChart] || '';
-        const isMirror = r[idxIsMirror].toLowerCase() === 'true';
-        const tip      = isMirror
-          ? `${id} (m)`
-          : `${id}`;
-        return [ id, parent, tip ];
+        const name     = r[idxName] || '';
+        const surname  = r[idxSurname] || '';
+        const isMirror = String(r[idxIsMirror]).toLowerCase() === 'true';
+        const level    = r[idxLevel];
+
+        // etiqueta HTML con ID en negrita + nombre apellidos
+        const label = `
+          <div style="text-align:center; white-space:nowrap">
+            <strong>${id}</strong><br>
+            ${name} ${surname}
+          </div>`.trim();
+
+        return [ label, parent, label ];
       })
     );
 
-    // dibujamos
-    google.charts.load('current',{packages:['orgchart']});
-    google.charts.setOnLoadCallback(()=>{
+    // pintamos con Google Charts
+    google.charts.load('current', { packages:['orgchart'] });
+    google.charts.setOnLoadCallback(() => {
       const data  = google.visualization.arrayToDataTable(dataArray);
       const chart = new google.visualization.OrgChart(container);
-      chart.draw(data,{allowHtml:true});
-      errorDiv.textContent = '';
+      chart.draw(data, { allowHtml: true });
+      errorDiv.textContent = '';  // todo ok
     });
 
   } catch(err) {
@@ -67,5 +84,5 @@ async function drawChart() {
   }
 }
 
-// ¡Arrancamos!
+// arranca
 drawChart();
