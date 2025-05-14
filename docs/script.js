@@ -1,108 +1,71 @@
-function rebuildUsuariosDiamond() {
-  const ss  = SpreadsheetApp.getActiveSpreadsheet();
-  const src = ss.getSheetByName('RespuestasDiamond');
-  const dst = ss.getSheetByName('UsuariosDiamond');
-  if (!src || !dst) {
-    throw new Error('No encuentro las pestañas RespuestasDiamond o UsuariosDiamond');
-  }
+// script.js
 
-  // 1) Leemos todo el rango, separamos cabecera y filtramos filas válidas
-  const all     = src.getDataRange().getValues();
-  const headers = all.shift();
+// → Sustituye el gid por el de tu pestaña "UsuariosDiamond"
+const CSV_URL = 'https://docs.google.com/spreadsheets/d/1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs/export?format=csv&gid=TU_GID_USUARIOS';
 
-  const idxUser   = headers.indexOf('Tu propio ID');
-  const idxParent = headers.indexOf('ID de quien te invita');
-  if (idxUser < 0 || idxParent < 0) {
-    throw new Error('No hallé las columnas “Tu propio ID” o “ID de quien te invita”');
-  }
+async function drawChart() {
+  const errorDiv  = document.getElementById('error');
+  const container = document.getElementById('gráfico_div');
+  errorDiv.textContent = 'Cargando datos…';
 
-  // filtramos sólo filas donde ambos campos estén llenos
-  const rows = all.filter(r =>
-    String(r[idxUser]).trim()   !== '' &&
-    String(r[idxParent]).trim() !== ''
-  );
+  try {
+    console.log('fetching:', CSV_URL);
+    const resp = await fetch(CSV_URL);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const csvText = await resp.text();
 
-  // 2) construimos mapa { id → { id, parent, mirrors[], level, chartParent } }
-  const map = {};
-  rows.forEach(r => {
-    const id      = r[idxUser];
-    const parent  = r[idxParent];
-    // extraemos todas las columnas que empiecen por "Espejo"
-    const mirrors = headers
-      .map((h,i) => h && String(h).startsWith('Espejo') ? r[i] : null)
-      .filter(v => v);
-    map[id] = { id, parent, mirrors, level: null, chartParent: null };
-  });
+    // parse muy simple (no comillas multilínea)
+    const rows = csvText
+      .trim()
+      .split(/\r?\n/)
+      .map(r => r.split(',').map(c => c.replace(/^"|"$/g, '').trim()));
 
-  // 3) recursión para asignar level y chartParent
-  function setNode(id) {
-    const node = map[id];
-    if (node.level !== null) return;
-    const p = map[node.parent];
-    if (!p) {
-      node.level       = 0;
-      node.chartParent = '';
-    } else {
-      setNode(node.parent);
-      node.level       = p.level + 1;
-      node.chartParent = node.parent;
+    const headers = rows[0];
+    console.log('Cabecera CSV:', headers);
+
+    // detectamos índices *exactos*
+    const idxUser         = headers.indexOf('UserID');
+    const idxParentChart  = headers.indexOf('ParentForChart');
+    const idxIsMirror     = headers.indexOf('isMirror');
+    const idxLevel        = headers.indexOf('Level');
+
+    if ([idxUser, idxParentChart, idxIsMirror, idxLevel].some(i => i < 0)) {
+      throw new Error('Faltan columnas clave en CSV');
     }
-    // luego sus mirrors
-    node.mirrors.forEach(m => {
-      map[m] = { id: m, parent: id, mirrors: [], level: null, chartParent: null };
-      setNode(m);
+
+    const dataRows = rows.slice(1).filter(r => r[idxUser] !== '');
+
+    console.log(`Filas totales: ${rows.length -1}, filas útiles: ${dataRows.length}`);
+
+    // Preparamos sólo las tres columnas que OrgChart necesita
+    const dataArray = [
+      ['UserID','ParentID','Tooltip']
+    ].concat(
+      dataRows.map(r => {
+        const id       = r[idxUser];
+        const parent   = r[idxParentChart] || '';
+        const isMirror = r[idxIsMirror].toLowerCase() === 'true';
+        const tip      = isMirror
+          ? `${id} (m)`
+          : `${id}`;
+        return [ id, parent, tip ];
+      })
+    );
+
+    // dibujamos
+    google.charts.load('current',{packages:['orgchart']});
+    google.charts.setOnLoadCallback(()=>{
+      const data  = google.visualization.arrayToDataTable(dataArray);
+      const chart = new google.visualization.OrgChart(container);
+      chart.draw(data,{allowHtml:true});
+      errorDiv.textContent = '';
     });
-  }
-  Object.keys(map).forEach(setNode);
 
-  // 4) preparamos salida
-  const output = [
-    ['UserID','ParentID','isMirror','Level','ParentForChart']
-  ];
-  Object.values(map).forEach(n => {
-    // nodo “real”
-    output.push([ n.id, n.parent, false, n.level, n.chartParent ]);
-
-    // ahora cada espejo de n
-    n.mirrors.forEach((m, i) => {
-      const mn = map[m];
-      // ----- AQUÍ VA LA LÓGICA NUEVA PARA EL ParentForChart DE LOS ESPEJOS -----
-      // abuelo de este espejo = chartParent de n
-      const abuID = n.chartParent;
-      let abuMirrors = [];
-      if (abuID && map[abuID]) {
-        abuMirrors = map[abuID].mirrors || [];
-      }
-      // elegimos el espejo i-ésimo del abuelo, si no existe, fallback al padre directo
-      const chartParForMirror = abuMirrors[i] || n.id;
-      // ------------------------------------------------------------------------
-
-      output.push([
-        m,               // UserID = espejo
-        n.id,            // ParentID = quien lo envuelve
-        true,            // isMirror
-        mn.level,        // mismo nivel calculado
-        chartParForMirror
-      ]);
-    });
-  });
-
-  // 5) volcamos en la hoja
-  dst.clearContents();
-  dst
-    .getRange(1, 1, output.length, output[0].length)
-    .setValues(output);
-  /**
- * Se ejecuta en toda edición del libro.
- * Si la edición está en la hoja "RespuestasDiamond",
- * llama a nuestra función de reconstrucción.
- */
-function onEdit(e) {
-  const hoja = e.range.getSheet();
-  if (hoja.getName() === 'RespuestasDiamond') {
-    rebuildUsuariosDiamond();
+  } catch(err) {
+    console.error(err);
+    errorDiv.textContent = 'Error cargando datos: ' + err.message;
   }
 }
-  
-}
 
+// ¡Arrancamos!
+drawChart();
