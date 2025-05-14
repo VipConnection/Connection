@@ -1,88 +1,100 @@
 // script.js
 
-const SPREADSHEET_ID  = '1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs';
-// CSV de UsuariosDiamond (jerarquía resuelta con mirrors)
-const URL_USUARIOS    = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/export?format=csv&gid=0`;
-// CSV de RespuestasDiamond (para nombre y apellidos)
-const URL_RESPUESTAS  = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/export?format=csv&gid=831917774`;
+// → GID=0: UsuariosDiamond
+// → GID=831917774: RespuestasDiamond (solo para la jerarquía y espejos)
+// → GID=539807990: Form_Responses1 (donde están Nombre, Apellidos, Teléfono, Billetera…)
+const SPREADSHEET_ID   = '1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs';
+const URL_USUARIOS     = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/export?format=csv&gid=0`;
+const URL_RESPUESTAS   = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/export?format=csv&gid=831917774`;
+const URL_FORM_RESP    = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/export?format=csv&gid=539807990`;
 
 async function drawChart() {
-  const err = document.getElementById('error');
-  const div = document.getElementById('gráfico_div');
-  err.textContent = 'Cargando datos…';
+  const errDiv = document.getElementById('error');
+  const chartDiv = document.getElementById('gráfico_div');
+  errDiv.textContent = 'Cargando datos…';
 
   try {
-    // 1) Traemos ambos CSV
-    const [rU, rA] = await Promise.all([ fetch(URL_USUARIOS), fetch(URL_RESPUESTAS) ]);
+    // 1) Bajamos los tres CSV: UsuariosDiamond, RespuestasDiamond y Form_Responses1
+    const [rU, rR, rF] = await Promise.all([
+      fetch(URL_USUARIOS),
+      fetch(URL_RESPUESTAS),
+      fetch(URL_FORM_RESP),
+    ]);
     if (!rU.ok) throw new Error(`UsuariosDiamond HTTP ${rU.status}`);
-    if (!rA.ok) throw new Error(`RespuestasDiamond HTTP ${rA.status}`);
-    const [csvU, csvA] = await Promise.all([rU.text(), rA.text()]);
+    if (!rR.ok) throw new Error(`RespuestasDiamond HTTP ${rR.status}`);
+    if (!rF.ok) throw new Error(`Form_Responses1 HTTP ${rF.status}`);
+    const [csvU, csvR, csvF] = await Promise.all([rU.text(), rR.text(), rF.text()]);
 
-    // 2) Parse CSVs de forma sencilla
-    const parse = txt => txt.trim()
-      .split(/\r?\n/)
-      .map(line => line.split(',').map(cell => cell.replace(/^"|"$/g, '')));
+    // 2) Simple parser CSV
+    const parse = txt => txt.trim().split(/\r?\n/).map(
+      line => line.split(',').map(c => c.replace(/^"|"$/g,''))
+    );
 
     const rowsU = parse(csvU);
-    const rowsA = parse(csvA);
+    const rowsR = parse(csvR);
+    const rowsF = parse(csvF);
 
-    // 3) Índices en UsuariosDiamond
+    // 3) Índices en UsuariosDiamond: UserID + ParentForChart
     const hdrU = rowsU[0];
     const iUID = hdrU.indexOf('UserID');
     const iPar = hdrU.indexOf('ParentForChart');
-    if (iUID<0 || iPar<0) {
-      throw new Error('No encuentro UserID o ParentForChart en UsuariosDiamond');
+    if (iUID < 0 || iPar < 0) {
+      throw new Error('No hallé UserID o ParentForChart en UsuariosDiamond');
     }
 
-    // 4) Índices en RespuestasDiamond para Nombre y Apellidos
-    const hdrA = rowsA[0].map(h=>h.trim());
-    const iA_UID = hdrA.indexOf('Tu propio ID');
-    const iA_Nom = hdrA.indexOf('Nombre');
-    const iA_Ape = hdrA.indexOf('Apellidos');
-    if (iA_UID<0||iA_Nom<0||iA_Ape<0) {
-      throw new Error('No encuentro Tu propio ID, Nombre o Apellidos en RespuestasDiamond');
+    // 4) Índices en Form_Responses1 ⇒ Nombre y Apellidos
+    //    Normalizamos a lower-case y trim para evitar discrepancias
+    const hdrF = rowsF[0].map(h => h.trim().toLowerCase());
+    const iF_UID = hdrF.indexOf('tu propio id');
+    const iF_NOM = hdrF.indexOf('nombre');
+    const iF_APE = hdrF.indexOf('apellidos');
+    if (iF_UID < 0 || iF_NOM < 0 || iF_APE < 0) {
+      console.log('Encabezados Form_Responses1:', rowsF[0]);
+      throw new Error('Faltan columnas Tu propio ID, Nombre o Apellidos en Form_Responses1');
     }
 
-    // 5) Construimos nameMap[id] = "Nombre Apellidos"
+    // 5) Construimos map id→"Nombre Apellidos"
     const nameMap = {};
-    rowsA.slice(1).forEach(r=>{
-      const id = r[iA_UID].trim();
-      if (id) nameMap[id] = `${r[iA_Nom].trim()||''} ${r[iA_Ape].trim()||''}`.trim();
+    rowsF.slice(1).forEach(r => {
+      const id = r[iF_UID].trim();
+      if (!id) return;
+      const full = `${r[iF_NOM].trim()} ${r[iF_APE].trim()}`.trim();
+      if (full) nameMap[id] = full;
     });
 
-    // 6) Preparamos Google DataTable para OrgChart
+    // 6) Ahora cargamos Google OrgChart
     google.charts.load('current',{packages:['orgchart']});
-    google.charts.setOnLoadCallback(()=> {
+    google.charts.setOnLoadCallback(() => {
       const data = new google.visualization.DataTable();
       data.addColumn('string','Name');
       data.addColumn('string','Parent');
       data.addColumn('boolean','IsHtml');
 
-      // 7) Añadimos cada fila de UsuariosDiamond
+      // 7) Rellenamos filas con la jerarquía YA calculada en UsuariosDiamond
       rowsU.slice(1).forEach(r => {
         const id     = r[iUID].trim();
         if (!id) return;
         const parent = r[iPar].trim() || '';
-        const full   = nameMap[id] || '';
-        // HTML para la burbuja: ID + <br> + Nombre Apellidos
-        const htmlLabel = `<div style="text-align:center">
-                             ${id}${ full ? `<br>${full}` : '' }
-                           </div>`;
-        // isHtml=true para que se renderice tu HTML
-        data.addRow([ { v: id, f: htmlLabel }, parent, true ]);
+        // Etiqueta HTML: ID + <br> + Nombre Apellidos (si existe)
+        const full = nameMap[id] || '';
+        const label = full
+          ? `<div style="text-align:center">${id}<br>${full}</div>`
+          : `<div style="text-align:center">${id}</div>`;
+        data.addRow([ { v: id, f: label }, parent, true ]);
       });
 
-      // 8) Dibujamos el OrgChart
-      const chart = new google.visualization.OrgChart(div);
-      chart.draw(data, { allowHtml: true });
-      err.textContent = '';
+      // 8) Dibujamos el gráfico
+      const chart = new google.visualization.OrgChart(chartDiv);
+      chart.draw(data, { allowHtml:true });
+      errDiv.textContent = '';
     });
 
   } catch(e) {
     console.error(e);
-    err.textContent = 'Error cargando datos: ' + e.message;
+    errDiv.textContent = 'Error cargando datos: ' + e.message;
   }
 }
 
 // Arrancamos
 drawChart();
+
