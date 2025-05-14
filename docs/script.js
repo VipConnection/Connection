@@ -1,85 +1,96 @@
-// → Ajusta este URL con el gid de tu pestaña UsuariosDiamond:
-const CSV_URL = 
+// → Ajusta el gid al de tu pestaña "UsuariosDiamond"
+const CSV_URL =
   'https://docs.google.com/spreadsheets/d/1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs'
   + '/export?format=csv&gid=0';
 
 async function drawChart() {
-  const errorDiv  = document.getElementById('error');
-  const container = document.getElementById('gráfico_div');
-  errorDiv.textContent = 'Cargando datos…';
+  const $err = document.getElementById('error');
+  const $div = document.getElementById('gráfico_div');
+  $err.textContent = 'Cargando datos…';
 
   try {
     console.log('fetching:', CSV_URL);
-    const resp = await fetch(CSV_URL);
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const csvText = await resp.text();
+    const res = await fetch(CSV_URL);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
 
-    // 1) Parse muy simple
-    const rows = csvText
-      .trim()
-      .split(/\r?\n/)
-      .map(r => r.split(',').map(c => c.replace(/^"|"$/g, '').trim()));
+    // 1) Parseo rápido
+    const all = text.trim().split(/\r?\n/).map(r =>
+      r.split(',').map(c => c.replace(/^"|"$/g, '').trim())
+    );
 
-    const headers = rows[0];
+    // 2) Localizo la fila con tu cabecera auténtica
+    const headRow = all.findIndex(r =>
+      r.includes('UserID') && r.includes('ParentForChart')
+    );
+    if (headRow < 0) throw new Error('No encuentro tu fila de cabecera');
+    const headers = all[headRow];
     console.log('Cabecera CSV:', headers);
 
-    // 2) Índices
-    const idxUser        = headers.indexOf('UserID');
-    const idxParentChart = headers.indexOf('ParentForChart');
-    const idxIsMirror    = headers.indexOf('isMirror');
-    const idxName        = headers.indexOf('Nombre');
-    const idxSurname     = headers.indexOf('Apellidos');
-    if ([idxUser, idxParentChart, idxIsMirror, idxName, idxSurname]
+    // 3) Índices de columnas clave
+    const idxUser       = headers.indexOf('UserID');
+    const idxParentFor  = headers.indexOf('ParentForChart');
+    const idxIsMirror   = headers.indexOf('isMirror');
+    const idxNombre     = headers.indexOf('Nombre');
+    const idxApellidos  = headers.indexOf('Apellidos');
+    if ([idxUser, idxParentFor, idxIsMirror, idxNombre, idxApellidos]
         .some(i => i < 0)) {
       throw new Error('Faltan columnas clave en CSV');
     }
 
-    // 3) Filtramos datos (quitamos encabezado y filas basura)
-    const dataRows = rows
-      .slice(1)
+    // 4) Filtro filas útiles (ID no vacío y no “UserID” literal)
+    const data = all
+      .slice(headRow + 1)
       .filter(r => {
-        const u = r[idxUser];
-        return u && u !== 'UserID' && u !== 'ParentID';
+        const v = r[idxUser];
+        return v && v !== 'UserID' && v !== 'ParentID';
       });
 
-    console.log(`Filas totales: ${rows.length -1}, filas útiles: ${dataRows.length}`);
+    console.log(`Filas totales: ${all.length - headRow - 1}, útiles: ${data.length}`);
 
-    // 4) Armamos la matriz que OrgChart necesita
+    // 5) Quitar duplicados (en caso de que existan)
+    const seen = new Set();
+    const uniq = [];
+    data.forEach(r => {
+      const key = `${r[idxUser]}|${r[idxParentFor]}|${r[idxIsMirror]}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        uniq.push(r);
+      }
+    });
+
+    // 6) Construyo la matriz para OrgChart (HTML en la primera columna)
     const dataArray = [
-      ['UserID','ParentID','Tooltip']
-    ].concat(
-      dataRows.map(r => {
-        const rawID   = r[idxUser];
-        const parent  = r[idxParentChart] || '';
-        const isM     = r[idxIsMirror].toLowerCase() === 'true';
-        // mostramos ID y nombre/apellidos en dos líneas:
-        const nombre  = r[idxName]    || '';
-        const apel    = r[idxSurname] || '';
-        const label   = `<div style="white-space:nowrap">`
-                      + `${rawID}<br>${nombre} ${apel}`
-                      + `</div>`;
-        // tooltip podría usarse igual, o quedarse vacío:
-        const tip     = isM
-                      ? `${rawID} (m)`
-                      : label;
-        return [ label, parent, tip ];
-      })
-    );
+      ['Label','Parent','Tooltip']
+    ].concat(uniq.map(r => {
+      const rawID    = r[idxUser];
+      const parent   = r[idxParentFor] || '';
+      const isM      = r[idxIsMirror].toLowerCase() === 'true';
+      const nombre   = r[idxNombre]   || '';
+      const apel     = r[idxApellidos]|| '';
+      // dos líneas: ID arriba, “Nombre Apellidos” abajo
+      const label = `<div style="white-space:nowrap;">`
+                  + `${rawID}<br>${nombre} ${apel}`
+                  + `</div>`;
+      const tip = isM ? `${rawID} (m)` : `${nombre} ${apel}`;
+      return [label, parent, tip];
+    }));
 
-    // 5) Dibujamos
+    // 7) Dibujo el gráfico
     google.charts.load('current',{packages:['orgchart']});
-    google.charts.setOnLoadCallback(()=> {
-      const data  = google.visualization.arrayToDataTable(dataArray);
-      const chart = new google.visualization.OrgChart(container);
-      chart.draw(data, { allowHtml: true });
-      errorDiv.textContent = '';
+    google.charts.setOnLoadCallback(()=>{
+      const gdata  = google.visualization.arrayToDataTable(dataArray);
+      const chart  = new google.visualization.OrgChart($div);
+      chart.draw(gdata, { allowHtml: true });
+      $err.textContent = '';
     });
 
   } catch(err) {
     console.error(err);
-    errorDiv.textContent = 'Error cargando datos: ' + err.message;
+    $err.textContent = 'Error cargando datos: ' + err.message;
   }
 }
 
-// Arrancamos al cargar la página
+// Lanza la función al cargar la página
 drawChart();
+
