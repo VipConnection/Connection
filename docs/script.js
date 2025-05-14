@@ -1,7 +1,9 @@
 // script.js
 
-// → Sustituye el gid por el de tu pestaña "UsuariosDiamond"
-const CSV_URL = 'https://docs.google.com/spreadsheets/d/1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs/export?format=csv&gid=0';
+// URLs CSV (reemplaza con tu propio spreadsheet ID si cambia)
+const SS_ID        = '1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs';
+const URL_USUARIOS = `https://docs.google.com/spreadsheets/d/${SS_ID}/export?format=csv&gid=0`;           // UsuariosDiamond
+const URL_RESPUESTAS = `https://docs.google.com/spreadsheets/d/${SS_ID}/export?format=csv&gid=831917774`; // RespuestasDiamond
 
 async function drawChart() {
   const errorDiv  = document.getElementById('error');
@@ -9,55 +11,97 @@ async function drawChart() {
   errorDiv.textContent = 'Cargando datos…';
 
   try {
-    console.log('fetching:', CSV_URL);
-    const resp = await fetch(CSV_URL);
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const csvText = await resp.text();
+    // 1) Descargamos ambas hojas
+    const [respUsers, respAnswers] = await Promise.all([
+      fetch(URL_USUARIOS),
+      fetch(URL_RESPUESTAS)
+    ]);
+    if (!respUsers.ok)   throw new Error(`Error HTTP usuarios: ${respUsers.status}`);
+    if (!respAnswers.ok) throw new Error(`Error HTTP respuestas: ${respAnswers.status}`);
 
-    // parse muy simple (no comillas multilínea)
-    const rows = csvText
+    const [csvUsers, csvAnswers] = await Promise.all([
+      respUsers.text(),
+      respAnswers.text()
+    ]);
+
+    // 2) Parseo simple de CSVs
+    const parse = txt => txt
       .trim()
       .split(/\r?\n/)
-      .map(r => r.split(',').map(c => c.replace(/^"|"$/g, '').trim()));
+      .map(r => r.split(',').map(c => c.replace(/^"|"$/g, '')));
+    
+    const rowsU = parse(csvUsers);
+    const rowsA = parse(csvAnswers);
 
-    const headers = rows[0];
-    console.log('Cabecera CSV:', headers);
+    const hdrU = rowsU[0];
+    const hdrA = rowsA[0];
 
-    // detectamos índices *exactos*
-    const idxUser         = headers.indexOf('UserID');
-    const idxParentChart  = headers.indexOf('ParentForChart');
-    const idxIsMirror     = headers.indexOf('isMirror');
-    const idxLevel        = headers.indexOf('Level');
+    // Índices clave en UsuariosDiamond
+    const iUser      = hdrU.indexOf('UserID');
+    const iParent    = hdrU.indexOf('ParentForChart');
+    const iIsMirror  = hdrU.indexOf('isMirror');
+    // (no necesitamos Level para mostrar nombres)
 
-    if ([idxUser, idxParentChart, idxIsMirror, idxLevel].some(i => i < 0)) {
-      throw new Error('Faltan columnas clave en CSV');
+    if ([iUser,iParent,iIsMirror].some(i=>i<0)) {
+      throw new Error('Faltan columnas UserID/ParentForChart/isMirror en UsuariosDiamond');
+    }
+    
+    // Índices clave en RespuestasDiamond para nombre y apellidos
+    const iRA_User   = hdrA.indexOf('Tu propio ID');
+    const iRA_Nombre = hdrA.indexOf('Nombre');
+    const iRA_Apelli = hdrA.indexOf('Apellidos');
+    if ([iRA_User,iRA_Nombre,iRA_Apelli].some(i=>i<0)) {
+      throw new Error('Faltan columnas Nombre/Apellidos/Tu propio ID en RespuestasDiamond');
     }
 
-    const dataRows = rows.slice(1).filter(r => r[idxUser] !== '');
+    // 3) Construimos mapa de nombres: id → "Nombre Apellidos"
+    const nameMap = {};
+    rowsA.slice(1).forEach(r => {
+      const id = r[iRA_User];
+      if (id) {
+        nameMap[id] = `${r[iRA_Nombre] || ''} ${r[iRA_Apelli] || ''}`.trim();
+      }
+    });
 
-    console.log(`Filas totales: ${rows.length -1}, filas útiles: ${dataRows.length}`);
+    // 4) Filtramos filas útiles de UsuariosDiamond
+    const dataRows = rowsU.slice(1).filter(r => r[iUser]);
 
-    // Preparamos sólo las tres columnas que OrgChart necesita
+    // 5) Montamos dataArray con HTML en la celda de nodo
     const dataArray = [
+      // OrgChart espera [ 'Label', 'Parent', 'Tooltip' ]
       ['UserID','ParentID','Tooltip']
     ].concat(
       dataRows.map(r => {
-        const id       = r[idxUser];
-        const parent   = r[idxParentChart] || '';
-        const isMirror = r[idxIsMirror].toLowerCase() === 'true';
-        const tip      = isMirror
-          ? `${id} (m)`
-          : `${id}`;
-        return [ id, parent, tip ];
+        const rawId    = r[iUser];
+        const parentId = r[iParent] || '';
+        const isMirror = String(r[iIsMirror]).toLowerCase() === 'true';
+
+        // Construimos el label con nombre/apellidos
+        const fullName = nameMap[rawId] || '';
+        // Podemos usar un pequeño estilo inline para centrar
+        const labelHtml = `<div style="text-align:center">
+                             ${rawId}${ fullName ? '<br>'+fullName : '' }
+                           </div>`;
+
+        // Tooltip o sufijo visual
+        const tip = isMirror
+          ? `${rawId} (espejo)`
+          : `${rawId}`;
+
+        return [ labelHtml, parentId, tip ];
       })
     );
 
-    // dibujamos
+    // 6) Dibujamos
     google.charts.load('current',{packages:['orgchart']});
     google.charts.setOnLoadCallback(()=>{
       const data  = google.visualization.arrayToDataTable(dataArray);
       const chart = new google.visualization.OrgChart(container);
-      chart.draw(data,{allowHtml:true});
+      chart.draw(data, {
+        allowHtml: true,
+        nodeClass: 'node',
+        selectedNodeClass: 'selected-node'
+      });
       errorDiv.textContent = '';
     });
 
@@ -67,6 +111,5 @@ async function drawChart() {
   }
 }
 
-// ¡Arrancamos!
+// Arrancamos
 drawChart();
-
