@@ -1,10 +1,8 @@
-// → URL CSV de UsuariosDiamond (gid = 0)
-const CSV_URL_USERS = 
-  'https://docs.google.com/spreadsheets/d/1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs/export?format=csv&gid=0';
+// script.js
 
-// → URL CSV de RespuestasDiamond (ajusta aquí el gid real)
-const CSV_URL_RESP = 
-  'https://docs.google.com/spreadsheets/d/1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs/export?format=csv&gid=539807990';
+// → URL CSV de UsuariosDiamond (gid=0)
+const CSV_URL_USERS =
+  'https://docs.google.com/spreadsheets/d/1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs/export?format=csv&gid=0';
 
 async function drawChart() {
   const errorDiv  = document.getElementById('error');
@@ -12,71 +10,35 @@ async function drawChart() {
   errorDiv.textContent = 'Cargando datos…';
 
   try {
-    // ————————————— 1) CARGO UsuariosDiamond —————————————
-    const respU = await fetch(CSV_URL_USERS);
-    if (!respU.ok) throw new Error(`HTTP ${respU.status} leyendo UsuariosDiamond`);
-    const textU = await respU.text();
-    const rowsU = textU
+    // 1) Descargamos el CSV
+    const resp = await fetch(CSV_URL_USERS);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status} leyendo UsuariosDiamond`);
+    const csvText = await resp.text();
+
+    // 2) Parse muy básico
+    const rows = csvText
       .trim()
       .split(/\r?\n/)
       .map(r => r.split(',').map(c => c.replace(/^"|"$/g, '').trim()));
 
-    const hdrU = rowsU.shift();
-    const iUser       = hdrU.indexOf('UserID');
-    const iParentForC = hdrU.indexOf('ParentForChart');
-    const iMirror     = hdrU.indexOf('isMirror');
-    if ([iUser, iParentForC, iMirror].some(i => i < 0)) {
-      throw new Error('Faltan columnas clave en UsuariosDiamond');
-    }
-    const dataU = rowsU.filter(r => r[iUser] !== '');
-
-    // ————————————— 2) CARGO RespuestasDiamond PARA NOMBRES —————————————
-    const respR = await fetch(CSV_URL_RESP);
-    if (!respR.ok) throw new Error(`HTTP ${respR.status} leyendo RespuestasDiamond`);
-    const textR = await respR.text();
-    const rowsR = textR
-      .trim()
-      .split(/\r?\n/)
-      .map(r => r.split(',').map(c => c.replace(/^"|"$/g, '').trim()));
-
-    const hdrR = rowsR.shift();
-    const iRuser = hdrR.indexOf('Tu propio ID');
-    const iRnom  = hdrR.indexOf('Nombre');
-    const iRape  = hdrR.indexOf('Apellidos');
-    if ([iRuser, iRnom, iRape].some(i => i < 0)) {
-      throw new Error('Faltan columnas “Tu propio ID”, “Nombre” o “Apellidos” en RespuestasDiamond');
+    const headers = rows.shift();
+    const idxLabel = headers.indexOf('LabelHTML');
+    const idxParent= headers.indexOf('ParentForChart');
+    if (idxLabel < 0 || idxParent < 0) {
+      throw new Error('Faltan columnas LabelHTML o ParentForChart en CSV');
     }
 
-    // — construyo un mapa { id → "Nombre Apellidos" }
-    const nameMap = {};
-    rowsR.forEach(r => {
-      const id = r[iRuser];
-      if (id) {
-        nameMap[id] = `${r[iRnom] || ''} ${r[iRape] || ''}`.trim();
-      }
+    // 3) Preparamos array para OrgChart
+    const dataArray = [
+      ['Name','Parent','Tooltip']
+    ];
+    rows.forEach(r => {
+      const label  = r[idxLabel];
+      const parent = r[idxParent] || '';
+      dataArray.push([ label, parent, '' ]);
     });
 
-    // ————————————— 3) PREPARO ARRAY PARA OrgChart —————————————
-    const dataArray = [
-      ['Name', 'Parent', 'ToolTip']
-    ].concat(
-      dataU.map(r => {
-        const idKey    = r[iUser];
-        const parent   = r[iParentForC] || '';
-        const nombre   = nameMap[idKey] || '';    // si no hay nombre, cadena vacía
-
-        // ETIQUETA HTML: ID en negrita + salto + Nombre Apellidos
-        const labelHtml = `
-          <div style="white-space:nowrap;text-align:center;">
-            <strong>${idKey}</strong><br>${nombre}
-          </div>
-        `;
-        // OrgChart: [col0=label, col1=parent, col2=tooltip]
-        return [ labelHtml, parent, nombre ];
-      })
-    );
-
-    // ————————————— 4) DIBUJO —————————————
+    // 4) Dibujamos con Google Charts
     google.charts.load('current', { packages: ['orgchart'] });
     google.charts.setOnLoadCallback(() => {
       const data  = google.visualization.arrayToDataTable(dataArray);
@@ -91,5 +53,6 @@ async function drawChart() {
   }
 }
 
-// arrancamos
+// Arrancamos
 drawChart();
+
