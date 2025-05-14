@@ -1,5 +1,7 @@
-// → Sustituye el gid por el de tu pestaña "UsuariosDiamond"
-const CSV_URL = 'https://docs.google.com/spreadsheets/d/1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs/export?format=csv&gid=0';
+// → Ajusta este URL con el gid de tu pestaña UsuariosDiamond:
+const CSV_URL = 
+  'https://docs.google.com/spreadsheets/d/1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs'
+  + '/export?format=csv&gid=0';
 
 async function drawChart() {
   const errorDiv  = document.getElementById('error');
@@ -12,7 +14,7 @@ async function drawChart() {
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const csvText = await resp.text();
 
-    // parse muy simple (no multilínea)
+    // 1) Parse muy simple
     const rows = csvText
       .trim()
       .split(/\r?\n/)
@@ -21,47 +23,53 @@ async function drawChart() {
     const headers = rows[0];
     console.log('Cabecera CSV:', headers);
 
-    // índices obligatorios
+    // 2) Índices
     const idxUser        = headers.indexOf('UserID');
     const idxParentChart = headers.indexOf('ParentForChart');
     const idxIsMirror    = headers.indexOf('isMirror');
-    const idxLevel       = headers.indexOf('Level');
-    // índices opcionales
-    const idxNombre      = headers.indexOf('Nombre');
-    const idxApellidos   = headers.indexOf('Apellidos');
-
-    // valida **solo** las 4 obligatorias
-    if ([idxUser, idxParentChart, idxIsMirror, idxLevel].some(i => i < 0)) {
+    const idxName        = headers.indexOf('Nombre');
+    const idxSurname     = headers.indexOf('Apellidos');
+    if ([idxUser, idxParentChart, idxIsMirror, idxName, idxSurname]
+        .some(i => i < 0)) {
       throw new Error('Faltan columnas clave en CSV');
     }
 
-    const dataRows = rows.slice(1).filter(r => r[idxUser] !== '');
-    console.log(`Filas totales: ${rows.length - 1}, filas útiles: ${dataRows.length}`);
+    // 3) Filtramos datos (quitamos encabezado y filas basura)
+    const dataRows = rows
+      .slice(1)
+      .filter(r => {
+        const u = r[idxUser];
+        return u && u !== 'UserID' && u !== 'ParentID';
+      });
 
-    // preparamos OrgChart: [ ['UserID','ParentID','Tooltip'], ... ]
-    const dataArray = [['UserID','ParentID','Tooltip']];
-    dataRows.forEach(r => {
-      const id       = r[idxUser];
-      const parent   = r[idxParentChart] || '';
-      const isMirror = r[idxIsMirror].toLowerCase() === 'true';
+    console.log(`Filas totales: ${rows.length -1}, filas útiles: ${dataRows.length}`);
 
-      // construye línea de nombre/apellidos sólo si existen
-      const nombre    = idxNombre  >= 0 ? r[idxNombre]   : '';
-      const apellidos = idxApellidos>= 0 ? r[idxApellidos]: '';
-      const linea2    = (nombre + ' ' + apellidos).trim();
+    // 4) Armamos la matriz que OrgChart necesita
+    const dataArray = [
+      ['UserID','ParentID','Tooltip']
+    ].concat(
+      dataRows.map(r => {
+        const rawID   = r[idxUser];
+        const parent  = r[idxParentChart] || '';
+        const isM     = r[idxIsMirror].toLowerCase() === 'true';
+        // mostramos ID y nombre/apellidos en dos líneas:
+        const nombre  = r[idxName]    || '';
+        const apel    = r[idxSurname] || '';
+        const label   = `<div style="white-space:nowrap">`
+                      + `${rawID}<br>${nombre} ${apel}`
+                      + `</div>`;
+        // tooltip podría usarse igual, o quedarse vacío:
+        const tip     = isM
+                      ? `${rawID} (m)`
+                      : label;
+        return [ label, parent, tip ];
+      })
+    );
 
-      // HTML del tooltip
-      const tip = linea2
-        ? `<div style="text-align:center"><strong>${id}</strong><br>${linea2}</div>`
-        : `<div style="text-align:center"><strong>${id}</strong></div>`;
-
-      dataArray.push([ id, parent, tip ]);
-    });
-
-    // dibujamos
+    // 5) Dibujamos
     google.charts.load('current',{packages:['orgchart']});
-    google.charts.setOnLoadCallback(() => {
-      const data  = google.visualization.arrayToDataTable(dataArray, true);
+    google.charts.setOnLoadCallback(()=> {
+      const data  = google.visualization.arrayToDataTable(dataArray);
       const chart = new google.visualization.OrgChart(container);
       chart.draw(data, { allowHtml: true });
       errorDiv.textContent = '';
@@ -73,4 +81,5 @@ async function drawChart() {
   }
 }
 
+// Arrancamos al cargar la página
 drawChart();
