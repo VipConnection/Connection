@@ -1,6 +1,6 @@
 // script.js
 
-// → URL CSV de UsuariosDiamond (gid=0)
+// URL CSV de UsuariosDiamond (gid=0)
 const CSV_URL_USERS =
   'https://docs.google.com/spreadsheets/d/1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs/export?format=csv&gid=0';
 
@@ -10,49 +10,47 @@ async function drawChart() {
   errorDiv.textContent = 'Cargando datos…';
 
   try {
-    // 1) Descargamos el CSV
+    // 1) Fetch CSV
     const resp = await fetch(CSV_URL_USERS);
-    if (!resp.ok) throw new Error(`HTTP ${resp.status} leyendo UsuariosDiamond`);
-    const csvText = await resp.text();
-
-    // 2) Parse muy básico
-    const rows = csvText
+    if (!resp.ok) throw new Error(`HTTP ${resp.status} al leer UsuariosDiamond`);
+    const txt = await resp.text();
+    const rows = txt
       .trim()
       .split(/\r?\n/)
-      .map(r => r.split(',').map(c => c.replace(/^"|"$/g, '').trim()));
+      .map(r=>r.split(',').map(c=>c.replace(/^"|"$/g,'').trim()));
 
+    // 2) Cabecera y detección de índices
     const headers = rows.shift();
-    const idxLabel = headers.indexOf('LabelHTML');
-    const idxParent= headers.indexOf('ParentForChart');
-    if (idxLabel < 0 || idxParent < 0) {
-      throw new Error('Faltan columnas LabelHTML o ParentForChart en CSV');
+    const idxLabel  = headers.indexOf('LabelHTML');
+    const idxParent = headers.indexOf('ParentForChart');
+    if (idxLabel<0||idxParent<0) {
+      throw new Error('Faltan LabelHTML o ParentForChart en UsuariosDiamond');
     }
 
-    // 3) Preparamos array para OrgChart
-    const dataArray = [
-      ['Name','Parent','Tooltip']
-    ];
-    rows.forEach(r => {
-      const label  = r[idxLabel];
-      const parent = r[idxParent] || '';
-      dataArray.push([ label, parent, '' ]);
-    });
-
-    // 4) Dibujamos con Google Charts
-    google.charts.load('current', { packages: ['orgchart'] });
-    google.charts.setOnLoadCallback(() => {
-      const data  = google.visualization.arrayToDataTable(dataArray);
+    // 3) Construimos DataTable
+    google.charts.load('current',{packages:['orgchart']});
+    google.charts.setOnLoadCallback(()=>{
+      const data = new google.visualization.DataTable();
+      data.addColumn('string','Name');
+      data.addColumn('string','Parent');
+      // llenamos filas
+      rows.forEach(r=>{
+        const label  = r[idxLabel];
+        const parent = r[idxParent] || '';
+        data.addRow([ { v: '', f: label }, parent ]);
+      });
+      // 4) Dibujamos
       const chart = new google.visualization.OrgChart(container);
-      chart.draw(data, { allowHtml: true });
+      chart.draw(data,{allowHtml:true});
       errorDiv.textContent = '';
     });
 
   } catch(err) {
     console.error(err);
-    errorDiv.textContent = 'Error cargando datos: ' + err.message;
+    errorDiv.textContent = 'Error cargando datos: '+err.message;
   }
 }
 
-// Arrancamos
+// arrancamos
 drawChart();
 
