@@ -12,7 +12,7 @@ async function drawChart() {
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const csvText = await resp.text();
 
-    // parsing muy simple (no soporta comillas multilínea)
+    // parse muy simple (no multilínea)
     const rows = csvText
       .trim()
       .split(/\r?\n/)
@@ -21,40 +21,36 @@ async function drawChart() {
     const headers = rows[0];
     console.log('Cabecera CSV:', headers);
 
-    // buscamos índices
+    // índices obligatorios
     const idxUser        = headers.indexOf('UserID');
     const idxParentChart = headers.indexOf('ParentForChart');
     const idxIsMirror    = headers.indexOf('isMirror');
-    // el nivel no lo usamos en el gráfico, pero lo comprobamos
     const idxLevel       = headers.indexOf('Level');
-    // columnas nuevas
+    // índices opcionales
     const idxNombre      = headers.indexOf('Nombre');
     const idxApellidos   = headers.indexOf('Apellidos');
 
-    if (idxUser < 0 || idxParentChart < 0 || idxIsMirror < 0 || idxLevel < 0) {
+    // valida **solo** las 4 obligatorias
+    if ([idxUser, idxParentChart, idxIsMirror, idxLevel].some(i => i < 0)) {
       throw new Error('Faltan columnas clave en CSV');
     }
 
     const dataRows = rows.slice(1).filter(r => r[idxUser] !== '');
-
     console.log(`Filas totales: ${rows.length - 1}, filas útiles: ${dataRows.length}`);
 
-    // montamos el array que necesita OrgChart: [ ['UserID','ParentID','Tooltip'], ... ]
-    const dataArray = [
-      ['UserID','ParentID','Tooltip']
-    ];
-
+    // preparamos OrgChart: [ ['UserID','ParentID','Tooltip'], ... ]
+    const dataArray = [['UserID','ParentID','Tooltip']];
     dataRows.forEach(r => {
       const id       = r[idxUser];
       const parent   = r[idxParentChart] || '';
       const isMirror = r[idxIsMirror].toLowerCase() === 'true';
 
-      // sacamos nombre y apellidos si existen
-      const nombre    = idxNombre  >= 0 ? r[idxNombre]  : '';
+      // construye línea de nombre/apellidos sólo si existen
+      const nombre    = idxNombre  >= 0 ? r[idxNombre]   : '';
       const apellidos = idxApellidos>= 0 ? r[idxApellidos]: '';
       const linea2    = (nombre + ' ' + apellidos).trim();
 
-      // construimos el HTML del tooltip
+      // HTML del tooltip
       const tip = linea2
         ? `<div style="text-align:center"><strong>${id}</strong><br>${linea2}</div>`
         : `<div style="text-align:center"><strong>${id}</strong></div>`;
@@ -62,7 +58,7 @@ async function drawChart() {
       dataArray.push([ id, parent, tip ]);
     });
 
-    // cargamos y dibujamos
+    // dibujamos
     google.charts.load('current',{packages:['orgchart']});
     google.charts.setOnLoadCallback(() => {
       const data  = google.visualization.arrayToDataTable(dataArray, true);
@@ -77,5 +73,4 @@ async function drawChart() {
   }
 }
 
-// arrancamos
 drawChart();
