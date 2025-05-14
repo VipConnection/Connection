@@ -1,57 +1,50 @@
 // script.js
 
-// → URL CSV de UsuariosDiamond (gid=0)
-const CSV_URL_USERS =
-  'https://docs.google.com/spreadsheets/d/1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs/export?format=csv&gid=0';
+// URL de la pestaña UsuariosDiamond (gid=0) vía gviz Query
+const QUERY_URL =
+  'https://docs.google.com/spreadsheets/d/'
+  + '1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs'
+  + '/gviz/tq?gid=0&headers=1';
 
-async function drawChart() {
+function drawChart() {
   const errorDiv  = document.getElementById('error');
   const container = document.getElementById('gráfico_div');
   errorDiv.textContent = 'Cargando datos…';
 
-  try {
-    // 1) Descargamos CSV
-    const resp = await fetch(CSV_URL_USERS);
-    if (!resp.ok) throw new Error(`HTTP ${resp.status} leyendo UsuariosDiamond`);
-    const csvText = await resp.text();
+  // Carga Google Charts
+  google.charts.load('current', { packages:['orgchart'] });
+  google.charts.setOnLoadCallback(() => {
+    // Ejecuta la query
+    const query = new google.visualization.Query(QUERY_URL);
+    query.send(response => {
+      if (response.isError()) {
+        errorDiv.textContent = 'Error al leer la hoja: ' + response.getMessage();
+        return;
+      }
+      // Obtenemos el DataTable completo
+      const dt = response.getDataTable();
+      // Columnas: 0=UserID,1=ParentID,2=isMirror,3=Level,4=ParentForChart,5=LabelHTML
+      const idxParent    = 4;
+      const idxLabelHTML = 5;
 
-    // 2) Parse básico
-    const rows = csvText
-      .trim()
-      .split(/\r?\n/)
-      .map(line => line.split(',').map(c => c.replace(/^"|"$/g,'').trim()));
+      // Creamos un DataView con solo LabelHTML y ParentForChart
+      const view = new google.visualization.DataView(dt);
+      view.setColumns([
+        {
+          calc: (dt,row) => ({ v:'', f: dt.getValue(row, idxLabelHTML) }),
+          type: 'string',
+          label: 'Name'
+        },
+        idxParent
+      ]);
 
-    const headers = rows.shift();
-    const idxLabel  = headers.indexOf('LabelHTML');
-    const idxParent = headers.indexOf('ParentForChart');
-    if (idxLabel < 0 || idxParent < 0) {
-      throw new Error('Faltan LabelHTML o ParentForChart en CSV');
-    }
-
-    // 3) Montamos DataTable
-    google.charts.load('current', { packages: ['orgchart'] });
-    google.charts.setOnLoadCallback(() => {
-      const data = new google.visualization.DataTable();
-      data.addColumn('string','Name');
-      data.addColumn('string','Parent');
-
-      // agregamos cada fila: usamos {v:'',f:HTML} para pintar el HTML
-      rows.forEach(r => {
-        const html   = r[idxLabel];
-        const parent = r[idxParent] || '';
-        data.addRow([ { v: '', f: html }, parent ]);
-      });
-
+      // Dibujamos
       const chart = new google.visualization.OrgChart(container);
-      chart.draw(data, { allowHtml: true });
+      chart.draw(view, { allowHtml: true });
       errorDiv.textContent = '';
     });
-
-  } catch(err) {
-    console.error(err);
-    errorDiv.textContent = 'Error cargando datos: ' + err.message;
-  }
+  });
 }
 
-// Arranca al cargar la página
+// Arranca al cargar
 drawChart();
