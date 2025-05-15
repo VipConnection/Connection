@@ -1,4 +1,4 @@
-// → URL de export CSV de UsuariosDiamond
+// → Sustituye el GID si cambias de pestaña
 const CSV_URL = 'https://docs.google.com/spreadsheets/d/1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs/export?format=csv&gid=0';
 
 async function drawChart() {
@@ -8,40 +8,24 @@ async function drawChart() {
 
   try {
     console.log('fetching:', CSV_URL);
-    const resp = await fetch(CSV_URL);
+    const resp    = await fetch(CSV_URL);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const csvText = await resp.text();
 
-    // parse simple CSV (sin multilínea)
-    const rows = csvText
+    // parse muy simple
+    const rows    = csvText
       .trim()
       .split(/\r?\n/)
       .map(r => r.split(',').map(c => c.replace(/^"|"$/g, '').trim()));
 
-    // Solo usamos las 3 columnas que el Apps Script volcó:
-    // [UserID, ParentForChart, Tooltip]
-    if (rows[0].length < 3) {
-      throw new Error('CSV incompleto: faltan columnas UserID/Parent/Tooltip');
-    }
+    const headers = rows[0];
+    console.log('Cabecera CSV:', headers);
 
-    // Preparamos el array para OrgChart
-    const dataArray = rows.map(r => [ r[0], r[1], r[2] ]);
+    // buscamos los índices que necesitamos
+    const idxUser        = headers.indexOf('UserID');
+    const idxParentChart = headers.indexOf('ParentForChart');
+    const idxIsMirror    = headers.indexOf('isMirror');
+    const idxName        = headers.indexOf('Nombre');
+    const idxSurname     = headers.indexOf('Apellidos');
 
-    // Dibujamos con Google Charts
-    google.charts.load('current',{packages:['orgchart']});
-    google.charts.setOnLoadCallback(() => {
-      const data  = google.visualization.arrayToDataTable(dataArray);
-      const chart = new google.visualization.OrgChart(container);
-      chart.draw(data, { allowHtml: true });
-      errorDiv.textContent = '';
-    });
-
-  } catch(err) {
-    console.error(err);
-    errorDiv.textContent = 'Error cargando datos: ' + err.message;
-  }
-}
-
-// Arrancamos al cargar la página
-drawChart();
-
+    if ([idxUser, idxParentChart, idxIsMirror, idxName, idxSurname].some(i => i <
