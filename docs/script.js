@@ -1,8 +1,13 @@
-// 1) Sustituye por la URL que te da "Publicar en la web"
-//    Cambia "pubhtml" por "pub", y añade "&output=gviz"
-const BASE = 
+// script.js
+
+// ————————————————————————————————————————————————
+// 1) URL de tu hoja PUBLICADA EN LA WEB:
+//    fíjate que sea del tipo `/d/e/<ID>/gviz/tq`
+//    y estamos leyendo la pestaña que tiene gid=0
+// ————————————————————————————————————————————————
+const GVIZ_URL = 
   'https://docs.google.com/spreadsheets/d/e/2PACX-1vRy-k0yGn0cmwcezx0ey1KYRLkOPt7mtqFXQ_kedc6WGeWYxJIqJEaC-oOYw4lL_dVpF6ooSfOXSflX'
-  + '/pub?gid=0&single=true&output=gviz';
+  + '/gviz/tq?gid=0';
 
 async function drawChart() {
   const errorDiv  = document.getElementById('error');
@@ -10,42 +15,49 @@ async function drawChart() {
   errorDiv.textContent = 'Cargando datos…';
 
   try {
-    // 2) Carga la librería de Google Charts
-    await new Promise(res => google.charts.load('current',{packages:['orgchart'],callback:res}));
+    // 2) Cargo la librería/orgchart
+    await new Promise(res =>
+      google.charts.load('current',{packages:['orgchart'],callback:res})
+    );
 
-    // 3) Construye y envía la consulta
-    const query = new google.visualization.Query(BASE + '&tq=' + encodeURIComponent(`
+    // 3) Preparo la consulta SQL para obtener las 5 columnas
+    const sql = `
       SELECT UserID, ParentForChart, isMirror, Nombre, Apellidos
-    `));
+    `.trim();
+
+    // 4) Lanzo la Query evitando CORS
+    const query = new google.visualization.Query(
+      GVIZ_URL + '&tq=' + encodeURIComponent(sql)
+    );
     const response = await new Promise((res, rej) =>
       query.send(r => r.isError() ? rej(r.getMessage()) : res(r))
     );
 
-    // 4) Extrae datos
+    // 5) Construyo el array que OrgChart necesita
     const dt = response.getDataTable();
     const dataArray = [['UserID','ParentID','LabelHTML']];
 
     for (let i = 0; i < dt.getNumberOfRows(); i++) {
-      const id       = dt.getValue(i, 0);
+      const id      = dt.getValue(i, 0);
       if (!id) continue;
-      const parent   = dt.getValue(i, 1) || '';
-      const isMir    = String(dt.getValue(i, 2)).toLowerCase() === 'true';
-      const name     = dt.getValue(i, 3) || '';
-      const surname  = dt.getValue(i, 4) || '';
+      const parent  = dt.getValue(i, 1) || '';
+      const mirror  = String(dt.getValue(i, 2)).toLowerCase() === 'true';
+      const name    = dt.getValue(i, 3) || '';
+      const surname = dt.getValue(i, 4) || '';
 
-      if (!isMir) {
-        // Nodo "real": ID + nombre y apellidos
-        const label = `<div style="white-space:nowrap">
-          ${id}<br>${name} ${surname}
-        </div>`;
+      if (!mirror) {
+        // nodo "real": ID + nombre/apellidos
+        const label = `<div style="white-space:nowrap;">
+                         ${id}<br>${name} ${surname}
+                       </div>`;
         dataArray.push([ {v:id, f:label}, parent, '' ]);
       } else {
-        // Espejo: solo ID
+        // espejo: sólo ID
         dataArray.push([ id, parent, '' ]);
       }
     }
 
-    // 5) Dibuja el organigrama
+    // 6) Pinto el organigrama
     const data  = google.visualization.arrayToDataTable(dataArray);
     const chart = new google.visualization.OrgChart(container);
     chart.draw(data, { allowHtml: true });
@@ -57,6 +69,6 @@ async function drawChart() {
   }
 }
 
-// 6) Arranca y refresca cada 30 segundos
+// 7) Arranco y refresco cada 30 s
 drawChart();
 setInterval(drawChart, 30_000);
