@@ -35,46 +35,4 @@ async function drawChart() {
     }
 
     // 4) Montamos el array que pide OrgChart
-    const dataArray = [['id','parent','tooltip']];
-    rows.forEach(r => {
-      const id       = r[idxUser];
-      if (!id) return;
-      // ← ÚNICO cambio: usar idxParentFor en lugar de idxParent
-      const parent   = r[idxParentFor] || '';
-      const isMirror = r[idxMirror].toLowerCase() === 'true';
-      const name     = r[idxName]    || '';
-      const surname  = r[idxSurname] || '';
-
-      if (!isMirror) {
-        // nodo “real”: ID + salto de línea + Nombre Apellidos
-        const label = `
-          <div style="text-align:center;white-space:nowrap">
-            ${id}<br>
-            <small>${name} ${surname}</small>
-          </div>
-        `.trim();
-        dataArray.push([ { v: id, f: label }, parent, '' ]);
-      } else {
-        // espejo: colgado donde ya lo calculó ParentForChart
-        dataArray.push([ id, parent, '' ]);
-      }
-    });
-
-    // 5) Dibujamos con Google OrgChart
-    google.charts.load('current', { packages: ['orgchart'] });
-    google.charts.setOnLoadCallback(() => {
-      const data  = google.visualization.arrayToDataTable(dataArray);
-      const chart = new google.visualization.OrgChart(container);
-      chart.draw(data, { allowHtml: true });
-      errorDiv.textContent = '';
-    });
-
-  } catch(err) {
-    console.error(err);
-    errorDiv.textContent = 'Error cargando datos: ' + err.message;
-  }
-}
-
-// Arranca y refresca cada 30s
-drawChart();
-setInterval(drawChart, 30*1000);
+    const dataArray = [['id','parent','toolt]()]()
