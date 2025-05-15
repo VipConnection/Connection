@@ -1,6 +1,6 @@
 // script.js
 
-// 1) URL de export CSV apuntando solo a tu pestaña "UsuariosDiamond" (gid=0):
+// → URL CSV apuntando a la pestaña "UsuariosDiamond" (gid=0)
 const CSV_URL = 'https://docs.google.com/spreadsheets/d/1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs/export?format=csv&gid=0';
 
 async function drawChart() {
@@ -9,18 +9,22 @@ async function drawChart() {
   errorDiv.textContent = 'Cargando datos…';
 
   try {
+    // 1) Traer CSV
+    console.log('fetching:', CSV_URL);
     const resp = await fetch(CSV_URL);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const csvText = await resp.text();
 
-    // parse simple CSV → array filas×columnas
+    // 2) Parse sencillo de CSV a matriz
     const rows = csvText
       .trim()
       .split(/\r?\n/)
       .map(r => r.split(',').map(c => c.replace(/^"|"$/g, '').trim()));
 
     const headers = rows[0];
-    // detectamos columnas clave:
+    console.log('Cabecera CSV:', headers);
+
+    // 3) Índices de columnas clave
     const idxUser        = headers.indexOf('UserID');
     const idxParentChart = headers.indexOf('ParentForChart');
     const idxIsMirror    = headers.indexOf('isMirror');
@@ -28,23 +32,25 @@ async function drawChart() {
       throw new Error('Faltan columnas clave en CSV');
     }
 
-    // preparamos data para OrgChart
+    // 4) Filtrar filas útiles (UserID no vacío)
     const dataRows = rows.slice(1).filter(r => r[idxUser] !== '');
+    console.log(`Filas totales: ${rows.length-1}, útiles: ${dataRows.length}`);
+
+    // 5) Construir dataArray para OrgChart
     const dataArray = [
       ['UserID','ParentID','Tooltip']
     ].concat(
       dataRows.map(r => {
-        const id       = r[idxUser];
-        const parent   = r[idxParentChart] || '';
+        const id       = r[idxUser];                         // p.ej. "4711 Jesús"
+        const parent   = r[idxParentChart] || '';            // p.ej. "7 System" o ""
         const isMirror = r[idxIsMirror].toLowerCase() === 'true';
-        // si no es espejo, mostramos ID línea <br> con nombre/apellidos tal cual vienen en el CSV
-        // (suponiendo que la celda UserID ya contiene "4711 Jesús", etc.)
+        // el tooltip mostramos el mismo contenido id (que ya incluye nombre/apellidos)
         const tip = `<div style="white-space:nowrap">${id}</div>`;
         return [ id, parent, tip ];
       })
     );
 
-    // 2) Dibuja con Google Charts
+    // 6) Cargar y dibujar con Google Charts
     google.charts.load('current',{packages:['orgchart']});
     google.charts.setOnLoadCallback(() => {
       const data  = google.visualization.arrayToDataTable(dataArray);
@@ -59,6 +65,6 @@ async function drawChart() {
   }
 }
 
-// 3) Arranca y refresca cada 30 segundos
+// Ejecutar al cargar y luego cada 30 s
 drawChart();
 setInterval(drawChart, 30_000);
