@@ -39,7 +39,7 @@ async function drawChart() {
     rows.forEach(r => {
       const id       = r[idxUser];
       if (!id) return;
-      // ← Aquí está el único cambio:
+      // ← ÚNICO cambio: usar idxParentFor en lugar de idxParent
       const parent   = r[idxParentFor] || '';
       const isMirror = r[idxMirror].toLowerCase() === 'true';
       const name     = r[idxName]    || '';
@@ -62,5 +62,19 @@ async function drawChart() {
 
     // 5) Dibujamos con Google OrgChart
     google.charts.load('current', { packages: ['orgchart'] });
-    google.charts.
+    google.charts.setOnLoadCallback(() => {
+      const data  = google.visualization.arrayToDataTable(dataArray);
+      const chart = new google.visualization.OrgChart(container);
+      chart.draw(data, { allowHtml: true });
+      errorDiv.textContent = '';
+    });
 
+  } catch(err) {
+    console.error(err);
+    errorDiv.textContent = 'Error cargando datos: ' + err.message;
+  }
+}
+
+// Arranca y refresca cada 30s
+drawChart();
+setInterval(drawChart, 30*1000);
