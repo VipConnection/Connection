@@ -1,6 +1,7 @@
-// 1) URLs CSVs
-const URL_USERS      = 'https://docs.google.com/spreadsheets/d/1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs/export?format=csv&gid=0';         // UsuariosDiamond
-const URL_RESPUESTAS = 'https://docs.google.com/spreadsheets/d/1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs/export?format=csv&gid=539807990'; // RespuestasDiamond
+// 1) URL de tu pestaña RespuestasDiamond (contiene ID, Parent, espejos y nombre/apellidos)
+const URL_RESP =
+  'https://docs.google.com/spreadsheets/d/1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs' +
+  '/export?format=csv&gid=539807990';
 
 async function drawChart() {
   const errorDiv  = document.getElementById('error');
@@ -8,129 +9,100 @@ async function drawChart() {
   errorDiv.textContent = 'Cargando datos…';
 
   try {
-    // 2) Descargamos ambos CSV en paralelo
-    const [respU, respR] = await Promise.all([fetch(URL_USERS), fetch(URL_RESPUESTAS)]);
-    if (!respU.ok) throw new Error(`HTTP users ${respU.status}`);
-    if (!respR.ok) throw new Error(`HTTP respuestas ${respR.status}`);
+    // 2) Descargamos y parseamos CSV
+    const resp = await fetch(URL_RESP);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const text = await resp.text();
+    const rows = text
+      .trim()
+      .split(/\r?\n/)
+      .map(r => r.split(',').map(c => c.replace(/^"|"$/g, '').trim()));
 
-    const [textU, textR] = await Promise.all([respU.text(), respR.text()]);
-
-    // 3) Parseamos a matrices
-    const rowsU = textU.trim().split(/\r?\n/).map(r=>r.split(',').map(c=>c.replace(/^"|"$/g,'').trim()));
-    const rowsR = textR.trim().split(/\r?\n/).map(r=>r.split(',').map(c=>c.replace(/^"|"$/g,'').trim()));
-
-    // 4) Índices en UsuariosDiamond
-    const hdrU       = rowsU.shift();
-    const idxUser    = hdrU.indexOf('UserID');
-    const idxParent  = hdrU.indexOf('ParentID');
-    const idxMirror  = hdrU.indexOf('isMirror');
-    const idxChart   = hdrU.indexOf('ParentForChart');
-    if ([idxUser,idxParent,idxMirror,idxChart].some(i=>i<0)) {
-      throw new Error('Faltan columnas clave en UsuariosDiamond');
+    // 3) Cabecera e índices
+    const headers     = rows.shift();
+    // columnas clave
+    const idxUser     = headers.indexOf('Tu propio ID');
+    const idxParent   = headers.indexOf('ID de quien te invita');
+    const idxName     = headers.indexOf('Nombre');
+    const idxSurname  = headers.indexOf('Apellidos');
+    if ([idxUser, idxParent, idxName, idxSurname].some(i => i < 0)) {
+      throw new Error('Faltan columnas “Tu propio ID” / “ID de quien te invita” / Nombre / Apellidos');
     }
+    // detectamos todas las columnas que empiecen por "Espejo"
+    const mirrorIdxs = headers
+      .map((h,i) => String(h||'').startsWith('Espejo') ? i : -1)
+      .filter(i => i >= 0);
 
-    // 5) Índices en RespuestasDiamond (para Nombre y Apellidos)
-    const hdrR       = rowsR.shift();
-    // el ID en Respuestas puede llamarse "Tu propio ID"
-    const idxRUser   = hdrR.indexOf('Tu propio ID') >= 0
-      ? hdrR.indexOf('Tu propio ID')
-      : hdrR.indexOf('UserID');
-    const idxNombre  = hdrR.indexOf('Nombre');
-    const idxApell   = hdrR.indexOf('Apellidos');
-    if (idxRUser<0||idxNombre<0||idxApell<0) {
-      throw new Error('Faltan columnas Nombre/Apellidos en RespuestasDiamond');
-    }
-
-    // 6) Creamos mapa de nombres: nameMap[id] = { nombre, apellidos }
-    const nameMap = {};
-    rowsR.forEach(r=>{
-      const id = r[idxRUser];
-      if (!id) return;
-      nameMap[id] = {
-        nombre   : r[idxNombre]||'',
-        apellidos: r[idxApell]||''
-      };
-    });
-
-    // 7) Construimos el mapa de nodos de Usuarios + espejos
+    // 4) Construimos el mapa
     const map = {};
-    rowsU.forEach(r=>{
+    rows.forEach(r => {
       const id     = r[idxUser];
       const parent = r[idxParent];
-      if (!id||!parent) return;
-      // extraemos todos los "Espejo X"
-      const mirrors = hdrU
-        .map((h,i)=> h&&h.startsWith('Espejo') ? r[i] : null )
-        .filter(x=>x);
-      map[id] = { id, parent, mirrors, level:null, chartParent:null };
+      if (!id || !parent) return;
+      // extraer espejos
+      const mirrors = mirrorIdxs.map(i => r[i]).filter(v => v);
+      map[id] = { id, parent, mirrors, level: null, chartParent: null };
     });
 
-    // 8) Recursión para asignar level y chartParent
+    // 5) Recursión para level y chartParent
     function setNode(id) {
       const node = map[id];
-      if (!node || node.level!==null) return;
+      if (!node || node.level !== null) return;
       const p = map[node.parent];
       if (!p) {
         node.level       = 0;
         node.chartParent = '';
       } else {
         setNode(node.parent);
-        node.level       = p.level+1;
+        node.level       = p.level + 1;
         node.chartParent = node.parent;
       }
-      // procesamos sus mirrors como nodos independientes
-      node.mirrors.forEach(m=>{
-        if (!map[m]) {
-          map[m] = { id:m, parent:id, mirrors:[], level:null, chartParent:null };
-        }
+      node.mirrors.forEach(m => {
+        if (!map[m]) map[m] = { id: m, parent: id, mirrors: [], level: null, chartParent: null };
         setNode(m);
       });
     }
     Object.keys(map).forEach(setNode);
 
-    // 9) Armamos el array para OrgChart
+    // 6) Preparamos array para OrgChart
     const dataArray = [['User','Parent','Tooltip']];
-    Object.values(map).forEach(n=>{
-      // — nodo “real” con nombre/apellidos si existe —
-      const nm = nameMap[n.id]||{};
-      const label = nm.nombre
-        ? `${n.id}<br><small>${nm.nombre} ${nm.apellidos}</small>`
-        : n.id;
-      dataArray.push([
-        { v: n.id, f:`<div style="text-align:center;white-space:nowrap">${label}</div>` },
-        n.chartParent||'',
-        ''
-      ]);
+    Object.values(map).forEach(n => {
+      // → nodo real con nombre y apellidos si existen
+      const row = rows.find(r => r[idxUser] === n.id);
+      const name    = row ? row[idxName]    : '';
+      const surname = row ? row[idxSurname] : '';
+      const label = name
+        ? `<div style="text-align:center;white-space:nowrap">
+             ${n.id}<br>
+             <small>${name} ${surname}</small>
+           </div>`
+        : `<div style="text-align:center;white-space:nowrap">${n.id}</div>`;
+      dataArray.push([ { v: n.id, f: label }, n.chartParent || '', '' ]);
 
-      // — cada espejo bajo el espejo correspondiente de su abuelo —
-      n.mirrors.forEach((m,i)=>{
-        // espejo i-ésimo de este nodo → debe colgar del i-ésimo espejo de su abuelo
-        const abuID = n.chartParent;
-        let abuMirrors = [];
-        if (abuID && map[abuID]) {
-          abuMirrors = map[abuID].mirrors || [];
-        }
-        const chartParForMirror = abuMirrors[i] || n.id;
-        dataArray.push([ m, chartParForMirror, '' ]);
+      // → espejos: colgar del espejo i-ésimo del abuelo
+      n.mirrors.forEach((m, i) => {
+        const abuID       = n.chartParent;
+        const abuMirrors  = abuID && map[abuID] ? map[abuID].mirrors : [];
+        const chartParent = abuMirrors[i] || n.id;
+        dataArray.push([ m, chartParent, '' ]);
       });
     });
 
-    // 10) Pintamos con Google OrgChart
-    google.charts.load('current',{packages:['orgchart']});
-    google.charts.setOnLoadCallback(()=>{
+    // 7) Pintamos con Google OrgChart
+    google.charts.load('current', { packages:['orgchart'] });
+    google.charts.setOnLoadCallback(() => {
       const data  = google.visualization.arrayToDataTable(dataArray);
       const chart = new google.visualization.OrgChart(container);
-      chart.draw(data,{allowHtml:true});
+      chart.draw(data, { allowHtml:true });
       errorDiv.textContent = '';
     });
 
   } catch(err) {
     console.error(err);
-    errorDiv.textContent = 'Error cargando datos: '+err.message;
+    errorDiv.textContent = 'Error cargando datos: ' + err.message;
   }
 }
 
-// Arrancamos + refrescamos cada 30s
+// arranca y refresca cada 30 s
 drawChart();
 setInterval(drawChart, 30*1000);
-
