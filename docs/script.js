@@ -1,70 +1,90 @@
 // script.js
 
-// → URL CSV apuntando a la pestaña "UsuariosDiamond" (gid=0)
-const CSV_URL = 'https://docs.google.com/spreadsheets/d/1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs/export?format=csv&gid=0';
+// → Sustituye estos URLs por los tuyos si cambian las hojas
+const URL_USUARIOS = 'https://docs.google.com/spreadsheets/d/1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs/export?format=csv&gid=0';
+const URL_RESPUESTAS = 'https://docs.google.com/spreadsheets/d/1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs/export?format=csv&gid=831917774';
+
+async function fetchCSV(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.text();
+}
 
 async function drawChart() {
-  const errorDiv  = document.getElementById('error');
+  const errDiv = document.getElementById('error');
   const container = document.getElementById('gráfico_div');
-  errorDiv.textContent = 'Cargando datos…';
+  errDiv.textContent = 'Cargando datos…';
 
   try {
-    // 1) Traer CSV
-    console.log('fetching:', CSV_URL);
-    const resp = await fetch(CSV_URL);
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const csvText = await resp.text();
+    // 1) Traemos ambos CSVs en paralelo
+    const [csvU, csvR] = await Promise.all([
+      fetchCSV(URL_USUARIOS),
+      fetchCSV(URL_RESPUESTAS)
+    ]);
 
-    // 2) Parse sencillo de CSV a matriz
-    const rows = csvText
-      .trim()
+    // 2) Parse sencillo
+    const parse = txt => txt.trim()
       .split(/\r?\n/)
       .map(r => r.split(',').map(c => c.replace(/^"|"$/g, '').trim()));
+    const dataU = parse(csvU);
+    const dataR = parse(csvR);
 
-    const headers = rows[0];
-    console.log('Cabecera CSV:', headers);
-
-    // 3) Índices de columnas clave
-    const idxUser        = headers.indexOf('UserID');
-    const idxParentChart = headers.indexOf('ParentForChart');
-    const idxIsMirror    = headers.indexOf('isMirror');
-    if ([idxUser, idxParentChart, idxIsMirror].some(i => i < 0)) {
-      throw new Error('Faltan columnas clave en CSV');
+    // 3) Índices en sheet UsuariosDiamond
+    const hdrU = dataU[0];
+    const idxUser       = hdrU.indexOf('UserID');
+    const idxParent     = hdrU.indexOf('ParentForChart');
+    const idxIsMirror   = hdrU.indexOf('isMirror');
+    const idxLevel      = hdrU.indexOf('Level');
+    if ([idxUser,idxParent,idxIsMirror,idxLevel].some(i=>i<0)) {
+      throw new Error('Faltan columnas clave en UsuariosDiamond');
     }
 
-    // 4) Filtrar filas útiles (UserID no vacío)
-    const dataRows = rows.slice(1).filter(r => r[idxUser] !== '');
-    console.log(`Filas totales: ${rows.length-1}, útiles: ${dataRows.length}`);
-
-    // 5) Construir dataArray para OrgChart
-    const dataArray = [
-      ['UserID','ParentID','Tooltip']
-    ].concat(
-      dataRows.map(r => {
-        const id       = r[idxUser];                         // p.ej. "4711 Jesús"
-        const parent   = r[idxParentChart] || '';            // p.ej. "7 System" o ""
-        const isMirror = r[idxIsMirror].toLowerCase() === 'true';
-        // el tooltip mostramos el mismo contenido id (que ya incluye nombre/apellidos)
-        const tip = `<div style="white-space:nowrap">${id}</div>`;
-        return [ id, parent, tip ];
-      })
-    );
-
-    // 6) Cargar y dibujar con Google Charts
-    google.charts.load('current',{packages:['orgchart']});
-    google.charts.setOnLoadCallback(() => {
-      const data  = google.visualization.arrayToDataTable(dataArray);
-      const chart = new google.visualization.OrgChart(container);
-      chart.draw(data, { allowHtml: true });
-      errorDiv.textContent = '';
+    // 4) Creamos un map de nombres desde RespuestasDiamond
+    const hdrR = dataR[0];
+    const idxRUser     = hdrR.indexOf('Tu propio ID');
+    const idxRNombre   = hdrR.indexOf('Nombre');
+    const idxRApellidos= hdrR.indexOf('Apellidos');
+    if ([idxRUser,idxRNombre,idxRApellidos].some(i=>i<0)) {
+      throw new Error('Faltan columnas Nombre/Apellidos en RespuestasDiamond');
+    }
+    const nameMap = {};
+    dataR.slice(1).forEach(r=>{
+      const id = r[idxRUser];
+      if (id) nameMap[id] = `${r[idxRNombre]||''} ${r[idxRApellidos]||''}`.trim();
     });
 
-  } catch (err) {
+    // 5) Filtramos filas útiles y preparamos la tabla de datos para OrgChart
+    const rowsU = dataU.slice(1).filter(r=>r[idxUser]);
+    const dataArray = [
+      ['UserID','ParentID','Tooltip']
+    ].concat(rowsU.map(r=>{
+      const id       = r[idxUser];
+      const parent   = r[idxParent] || '';
+      const isMirror = r[idxIsMirror].toLowerCase()==='true';
+      // tooltip = html con ID siempre, y si no es espejo, añadimos nombre/apellidos
+      let tip = `<div style="white-space:nowrap">${id}`;
+      if (!isMirror && nameMap[id]) {
+        tip += `<br><i>${nameMap[id]}</i>`;
+      }
+      tip += `</div>`;
+      return [ id, parent, tip ];
+    }));
+
+    // 6) Dibujamos
+    google.charts.load('current',{packages:['orgchart']});
+    google.charts.setOnLoadCallback(()=>{
+      const data = google.visualization.arrayToDataTable(dataArray, false);
+      const chart = new google.visualization.OrgChart(container);
+      chart.draw(data,{allowHtml:true});
+      errDiv.textContent = '';
+    });
+
+  } catch(err) {
     console.error(err);
-    errorDiv.textContent = 'Error cargando datos: ' + err.message;
+    errDiv.textContent = 'Error cargando datos: ' + err.message;
   }
 }
 
-// Ejecutar al cargar y luego cada 30 s
+// refresca cada 30s
 drawChart();
-setInterval(drawChart, 30_000);
+setInterval(drawChart, 30*1000);
