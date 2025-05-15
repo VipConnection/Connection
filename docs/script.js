@@ -2,8 +2,8 @@
 
 // 1) URL de exportación CSV: asegúrate de que el gid coincide con tu hoja UsuariosDiamond
 const CSV_URL = 
-  'https://docs.google.com/spreadsheets/d/1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs' +
-  '/export?format=csv&gid=0';
+const CSV_URL = 'https://docs.google.com/spreadsheets/d/1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs/export?format=csv&gid=0';
+ 
 
 async function drawChart() {
   const errorDiv  = document.getElementById('error');
