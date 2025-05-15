@@ -2,7 +2,7 @@
 
 // 1) URL de tu pestaña UsuariosDiamond (gid=0)
 const CSV_URL =
-  'https://docs.google.com/spreadsheets/d/1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs' +
+  'https://docs.google.com/spreadsheets/d/e/2PACX-1vRy-k0yGn0cmwcezx0ey1KYRLkOPt7mtqFXQ_kedc6WGeWYxJIqJEaC-oOYw4lL_dVpF6ooSfOXSflX/pubhtml' +
   '/export?format=csv&gid=0';
 
 async function drawChart() {
