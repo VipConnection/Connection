@@ -1,7 +1,9 @@
 // script.js
 
-// → URL de export CSV de tu hoja UsuariosDiamond (gid=0)
-const CSV_URL = 'https://docs.google.com/spreadsheets/d/1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs/export?format=csv&gid=0';
+// 1) Ajusta tu gid si es otro
+const CSV_URL =
+  'https://docs.google.com/spreadsheets/d/1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs' +
+  '/export?format=csv&gid=0';
 
 async function drawChart() {
   const errorDiv  = document.getElementById('error');
@@ -9,53 +11,50 @@ async function drawChart() {
   errorDiv.textContent = 'Cargando datos…';
 
   try {
-    // 1) Descargar CSV
+    // 2) Descarga y parse CSV
     const resp = await fetch(CSV_URL);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const text = await resp.text();
-
-    // 2) Parse sencillo
     const rows = text
       .trim()
       .split(/\r?\n/)
       .map(line => line.split(',').map(c => c.replace(/^"|"$/g, '').trim()));
 
-    const headers = rows.shift();
+    // 3) Encabezados e índices
+    const headers    = rows.shift();
     const idxUser    = headers.indexOf('UserID');
     const idxParent  = headers.indexOf('ParentForChart');
     const idxMirror  = headers.indexOf('isMirror');
     const idxName    = headers.indexOf('Nombre');
     const idxSurname = headers.indexOf('Apellidos');
-
     if ([idxUser,idxParent,idxMirror,idxName,idxSurname].some(i=>i<0)) {
       throw new Error('Faltan columnas clave en CSV');
     }
 
-    // 3) Construimos el array para OrgChart
+    // 4) Construimos el array para OrgChart
     const dataArray = [
-      ['Name','Parent','ToolTip']
-    ].concat(
-      rows
-        .filter(r => r[idxUser])  // sólo filas con ID
-        .map(r => {
-          const id        = r[idxUser];
-          const parent    = r[idxParent] || '';
-          const isMirror  = r[idxMirror].toLowerCase() === 'true';
-          const name      = r[idxName] || '';
-          const surname   = r[idxSurname] || '';
+      ['UserID','ParentID','LabelHTML']
+    ];
+    rows.forEach(r => {
+      const id       = r[idxUser];
+      if (!id) return;
+      const parent   = r[idxParent] || '';
+      const isMirror = r[idxMirror].toLowerCase() === 'true';
+      const name     = r[idxName]    || '';
+      const surname  = r[idxSurname] || '';
 
-          // Para nodos reales, HTML con ID + <br> + Nombre Apellidos
-          // Para espejos, solo el ID
-          const cell = !isMirror
-            ? { v: id, f: `<div style="white-space:nowrap;">${id}<br>${name} ${surname}</div>` }
-            : id;
+      if (!isMirror) {
+        // Nodo real: ID + salto de línea + Nombre Apellidos
+        const label = `<div style="white-space:nowrap;">${id}<br>${name} ${surname}</div>`;
+        dataArray.push([ { v: id, f: label }, parent, '' ]);
+      } else {
+        // Espejo: solo ID
+        dataArray.push([ id, parent, '' ]);
+      }
+    });
 
-          return [ cell, parent, '' ];
-        })
-    );
-
-    // 4) Dibujamos
-    google.charts.load('current', { packages: ['orgchart'] });
+    // 5) Dibujamos con Google Charts OrgChart
+    google.charts.load('current', { packages:['orgchart'] });
     google.charts.setOnLoadCallback(() => {
       const data  = google.visualization.arrayToDataTable(dataArray);
       const chart = new google.visualization.OrgChart(container);
@@ -69,5 +68,5 @@ async function drawChart() {
   }
 }
 
-// Arrancamos al cargar la página
+// 6) Ejecutamos al cargar la página
 drawChart();
