@@ -1,49 +1,43 @@
-// → Ajusta estos valores a tu documento y pestaña
-const SHEET_ID     = '1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs';
-const QUERY_SHEET  = 'UsuariosDiamond';  // nombre exacto de la pestaña
+// → Ajusta a tu documento y pestaña
+var SHEET_ID    = '1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs';
+var QUERY_SHEET = 'UsuariosDiamond';
 
-// Función principal que descarga y dibuja el organigrama
 function drawChart() {
-  const errorDiv  = document.getElementById('error');
-  const container = document.getElementById('gráfico_div');
+  var errorDiv  = document.getElementById('error');
+  var container = document.getElementById('gráfico_div');
   errorDiv.textContent = 'Cargando datos…';
 
-  // Montamos la query SQL-like: columnas A..E, filas donde A (UserID) no esté vacío,
-  // y ordenamos por nivel / parent para que Google Charts las coloque correctamente.
-  const tq = encodeURIComponent(
-    'select A,B,C,D,E where A is not null order by D asc, E asc'
-  );
-  const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}` +
-              `/gviz/tq?sheet=${QUERY_SHEET}&headers=1&tq=${tq}`;
+  try {
+    // Montamos la Query: columns A–E, filas con A no nulo, ordenadas por nivel y padre
+    var tq = encodeURIComponent(
+      'select A,B,C,D,E where A is not null order by D asc, E asc'
+    );
+    var url = 'https://docs.google.com/spreadsheets/d/' + SHEET_ID +
+              '/gviz/tq?sheet=' + QUERY_SHEET +
+              '&headers=1&tq=' + tq;
 
-  // Cargamos el paquete OrgChart
-  google.charts.load('current', { packages: ['orgchart'] });
-  google.charts.setOnLoadCallback(() => {
-    const query = new google.visualization.Query(url);
-    query.send(response => {
-      if (response.isError()) {
-        errorDiv.textContent = 
-          'Error al consultar la hoja: ' + response.getMessage();
-        console.error(response.getDetailedMessage());
-        return;
-      }
-
-      // Obtenemos directamente el DataTable ya filtrado y ordenado
-      const dataTable = response.getDataTable();
-
-      // Dibujamos el OrgChart
-      const chart = new google.visualization.OrgChart(container);
-      chart.draw(dataTable, {
-        allowHtml: true,
-        // si quieres estilos extra: color de nodos, tamaño de fuente, etc.
+    google.charts.load('current', { packages: ['orgchart'] });
+    google.charts.setOnLoadCallback(function() {
+      var query = new google.visualization.Query(url);
+      query.send(function(response) {
+        if (response.isError()) {
+          errorDiv.textContent = 'Error al consultar hoja: ' + response.getMessage();
+          console.error(response.getDetailedMessage());
+          return;
+        }
+        var dataTable = response.getDataTable();
+        var chart = new google.visualization.OrgChart(container);
+        chart.draw(dataTable, { allowHtml: true });
+        errorDiv.textContent = '';
       });
-
-      errorDiv.textContent = '';
     });
-  });
+
+  } catch (e) {
+    console.error(e);
+    errorDiv.textContent = 'Error cargando datos: ' + e.message;
+  }
 }
 
 // Arrancamos y refrescamos cada 30 segundos
 drawChart();
 setInterval(drawChart, 30 * 1000);
-
