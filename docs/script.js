@@ -1,80 +1,70 @@
-// script.js
+// 1) Pon aquí tu URL pública CSV de Google Sheets (publicada en Archivo→Publicar)
+const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRy-k0yGn0cmwcezx0ey1KYRLkOPt7mtqFXQ_kedc6WGeWYxJIqJEaC-oOYw4lL_dVpF6ooSfOXSflX/pub?gid=0&single=true&output=csv';
 
-// 1) Pon aquí tu ID de spreadsheet y el nombre exacto de la pestaña “UsuariosDiamond”
-var SHEET_ID   = '1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs';
-var SHEET_NAME = 'UsuariosDiamond';
-
-function drawChart() {
-  var errorDiv  = document.getElementById('error');
-  var container = document.getElementById('gráfico_div');
+async function drawChart() {
+  const errorDiv  = document.getElementById('error');
+  const container = document.getElementById('gráfico_div');
   errorDiv.textContent = 'Cargando datos…';
 
-  // Carga Google Charts
-  google.charts.load('current', { packages: ['orgchart'] });
-  google.charts.setOnLoadCallback(function() {
-    // Consulta (sin CORS) usando la API de Visualization
-    var tq = encodeURIComponent('select A,B,C,D,E where A<>""');
-    var url = 'https://docs.google.com/spreadsheets/d/' + SHEET_ID +
-              '/gviz/tq?sheet=' + SHEET_NAME + '&headers=1&tq=' + tq;
+  try {
+    // 2) Descarga y parsea el CSV
+    console.log('fetching:', CSV_URL);
+    const resp = await fetch(CSV_URL);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const text = await resp.text();
+    const rows = text
+      .trim()
+      .split(/\r?\n/)
+      .map(line => line.split(',').map(c => c.replace(/^"|"$/g, '').trim()));
 
-    var query = new google.visualization.Query(url);
-    query.send(function(resp) {
-      if (resp.isError()) {
-        errorDiv.textContent = 'Error hoja: ' + resp.getMessage();
-        return;
+    // 3) Cabeceras e índices
+    const headers    = rows.shift();
+    const idxUser    = headers.indexOf('UserID');
+    const idxParent  = headers.indexOf('ParentForChart');
+    const idxMirror  = headers.indexOf('isMirror');
+    const idxName    = headers.indexOf('Nombre');
+    const idxSurname = headers.indexOf('Apellidos');
+    if ([idxUser,idxParent,idxMirror,idxName,idxSurname].some(i=>i<0)) {
+      throw new Error('Faltan columnas clave en CSV');
+    }
+
+    // 4) Construimos array para Google OrgChart
+    const dataArray = [
+      ['UserID','ParentID','LabelHTML']
+    ];
+    rows.forEach(r => {
+      const id       = r[idxUser];
+      if (!id) return;
+      const parent   = r[idxParent] || '';
+      const isMirror = r[idxMirror].toLowerCase() === 'true';
+      const name     = r[idxName]    || '';
+      const surname  = r[idxSurname] || '';
+
+      if (!isMirror) {
+        // Nodo principal: muestra ID + nombre/apellidos
+        const label = `<div style="white-space:nowrap;">${id}<br>${name} ${surname}</div>`;
+        dataArray.push([ { v: id, f: label }, parent, '' ]);
+      } else {
+        // Espejo: solo ID, y colocamos bajo su abuelo
+        dataArray.push([ id, parent, '' ]);
       }
+    });
 
-      var dt = resp.getDataTable();
-      // Columnas: 0=UserID,1=ParentForChart,2=isMirror,3=Nombre,4=Apellidos
-      var map = {};
-      var rows = dt.getNumberOfRows();
-      for (var i = 0; i < rows; i++) {
-        var id       = dt.getValue(i, 0);
-        var parent   = dt.getValue(i, 1) || '';
-        var mirror   = String(dt.getValue(i, 2)).toLowerCase() === 'true';
-        var name     = dt.getValue(i, 3) || '';
-        var surname  = dt.getValue(i, 4) || '';
-
-        // Creamos nodo si no existe
-        if (!map[id]) map[id] = { parent: parent, mirrors: [], name: name, surname: surname };
-        // Si es espejo, lo acumulamos bajo su padre
-        if (mirror) map[parent] && map[parent].mirrors.push(id);
-      }
-
-      // Construimos la DataTable de OrgChart
-      var data = new google.visualization.DataTable();
-      data.addColumn('string', 'UserID');
-      data.addColumn('string', 'ParentID');
-      data.addColumn('string', 'Tooltip');
-
-      // Primero nodos “reales” (no-espejos), con label HTML de ID + nombre
-      Object.keys(map).forEach(function(id) {
-        var n = map[id];
-        // ¿Es espejo de alguien?
-        var isMirror = map[n.parent] && map[n.parent].mirrors.indexOf(id) !== -1;
-        if (!isMirror) {
-          var label = '<div style="white-space:nowrap;">'
-                    + id + '<br>' + n.name + ' ' + n.surname
-                    + '</div>';
-          data.addRow([ { v: id, f: label }, n.parent, '' ]);
-        }
-        // Luego sus espejos “colgados” bajo el espejo correspondiente de su abuelo
-        n.mirrors.forEach(function(mid, idx) {
-          var abu = map[n.parent] && map[n.parent].mirrors
-                  ? map[n.parent].mirrors[idx] || n.parent
-                  : n.parent;
-          data.addRow([ mid, id, '' ]);  // en OrgChart, el tercer campo puede quedar vacío
-        });
-      });
-
-      // Dibujamos
-      var chart = new google.visualization.OrgChart(container);
+    // 5) Dibujamos OrgChart
+    google.charts.load('current', { packages:['orgchart'] });
+    google.charts.setOnLoadCallback(() => {
+      const data  = google.visualization.arrayToDataTable(dataArray);
+      const chart = new google.visualization.OrgChart(container);
       chart.draw(data, { allowHtml: true });
       errorDiv.textContent = '';
     });
-  });
+
+  } catch(err) {
+    console.error(err);
+    errorDiv.textContent = 'Error cargando datos: ' + err.message;
+  }
 }
 
-// Arrancamos + refresco cada 30 s
+// Arranca y refresca cada 30 segundos
 drawChart();
 setInterval(drawChart, 30 * 1000);
