@@ -32,7 +32,7 @@ async function drawChart() {
     const hdrR = rowsR.shift();
     const idxRUser   = hdrR.indexOf('Tu propio ID') !== -1
                     ? hdrR.indexOf('Tu propio ID')
-                    : hdrR.indexOf('UserID'); // o el nombre que uses allí
+                    : hdrR.indexOf('Tu Propio ID'); // o el nombre que uses allí
     const idxNombre  = hdrR.indexOf('Nombre');
     const idxApell   = hdrR.indexOf('Apellidos');
     if (idxRUser<0 || idxNombre<0 || idxApell<0) {
