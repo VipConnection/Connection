@@ -1,85 +1,93 @@
 // script.js
 
 // 1) URL de tu pestaña UsuariosDiamond (gid=0)
-const CSV_URL =
-  'https://docs.google.com/spreadsheets/d/1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs' +
-  '/export?format=csv&gid=0';
+const CSV_URL = 
+  "https://docs.google.com/spreadsheets/d/" +
+  "1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs" +
+  "/export?format=csv&gid=0";
 
 async function drawChart() {
-  const errorDiv  = document.getElementById('error');
-  const container = document.getElementById('gráfico_div');
-  errorDiv.textContent = 'Cargando datos…';
+  var errorDiv  = document.getElementById("error");
+  var container = document.getElementById("gráfico_div");
+  errorDiv.textContent = "Cargando datos…";
 
   try {
     // 2) Fetch + parse CSV
-    const resp = await fetch(CSV_URL);
+    var resp = await fetch(CSV_URL);
     if (!resp.ok) {
-      throw new Error('HTTP ' + resp.status);
+      throw new Error("HTTP " + resp.status);
     }
-    const text = await resp.text();
-    const rows = text
+    var text = await resp.text();
+    var rows = text
       .trim()
       .split(/\r?\n/)
       .map(function(line) {
         return line
-          .split(',')
+          .split(",")
           .map(function(cell) {
-            return cell.replace(/^"|"$/g, '').trim();
+            return cell.replace(/^"|"$/g, "").trim();
           });
       });
 
     // 3) Encabezados e índices
-    const headers      = rows.shift();
-    const idxUser      = headers.indexOf('UserID');
-    const idxParentFor = headers.indexOf('ParentForChart');
-    const idxMirror    = headers.indexOf('isMirror');
-    const idxName      = headers.indexOf('Nombre');
-    const idxSurname   = headers.indexOf('Apellidos');
-    if ([idxUser, idxParentFor, idxMirror, idxName, idxSurname].some(function(i){ return i < 0; })) {
-      throw new Error('Faltan columnas clave en CSV');
+    var headers      = rows.shift();
+    var idxUser      = headers.indexOf("UserID");
+    var idxParentFor = headers.indexOf("ParentForChart");
+    var idxMirror    = headers.indexOf("isMirror");
+    var idxName      = headers.indexOf("Nombre");
+    var idxSurname   = headers.indexOf("Apellidos");
+    if (
+      idxUser < 0 ||
+      idxParentFor < 0 ||
+      idxMirror < 0 ||
+      idxName < 0 ||
+      idxSurname < 0
+    ) {
+      throw new Error("Faltan columnas clave en CSV");
     }
 
     // 4) Montamos el array que pide OrgChart
-    const dataArray = [['id','parent','tooltip']];
+    var dataArray = [["id", "parent", "tooltip"]];
     rows.forEach(function(r) {
-      const id       = r[idxUser];
-      if (!id) return;
-      // ← ÚNICO cambio: usamos ParentForChart
-      const parent   = r[idxParentFor] || '';
-      const isMirror = (r[idxMirror] || '').toLowerCase() === 'true';
-      const name     = r[idxName]    || '';
-      const surname  = r[idxSurname] || '';
+      var id = r[idxUser];
+      if (!id) {
+        return;
+      }
+      // ← El único cambio: parent sale de ParentForChart
+      var parent   = r[idxParentFor] || "";
+      var isMirror = (r[idxMirror] || "").toLowerCase() === "true";
+      var name     = r[idxName]    || "";
+      var surname  = r[idxSurname] || "";
 
       if (!isMirror) {
         // nodo “real”
-        const label =
-          '<div style="text-align:center;white-space:nowrap">' +
-            id + '<br>' +
-            '<small>' + name + ' ' + surname + '</small>' +
-          '</div>';
-        dataArray.push([ { v: id, f: label }, parent, '' ]);
+        var label = 
+          "<div style=\"text-align:center;white-space:nowrap\">" +
+            id + "<br>" +
+            "<small>" + name + " " + surname + "</small>" +
+          "</div>";
+        dataArray.push([ { v: id, f: label }, parent, "" ]);
       } else {
         // espejo
-        dataArray.push([ id, parent, '' ]);
+        dataArray.push([ id, parent, "" ]);
       }
     });
 
     // 5) Dibujamos con Google OrgChart
-    google.charts.load('current', { packages: ['orgchart'] });
+    google.charts.load("current", { packages: ["orgchart"] });
     google.charts.setOnLoadCallback(function() {
-      const data  = google.visualization.arrayToDataTable(dataArray);
-      const chart = new google.visualization.OrgChart(container);
+      var data  = google.visualization.arrayToDataTable(dataArray);
+      var chart = new google.visualization.OrgChart(container);
       chart.draw(data, { allowHtml: true });
-      errorDiv.textContent = '';
+      errorDiv.textContent = "";
     });
 
-  } catch(err) {
+  } catch (err) {
     console.error(err);
-    errorDiv.textContent = 'Error cargando datos: ' + err.message;
+    errorDiv.textContent = "Error cargando datos: " + err.message;
   }
 }
 
-// Arranca y refresca cada 30s
+// Arranca y refresca cada 30 s
 drawChart();
 setInterval(drawChart, 30 * 1000);
-
