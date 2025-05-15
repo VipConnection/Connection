@@ -1,85 +1,80 @@
 // script.js
 
-// ID de tu hoja y nombre de pestaña
-var SHEET_ID    = '1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs';
-var SHEET_NAME  = 'UsuariosDiamond';
+// 1) Pon aquí tu ID de spreadsheet y el nombre exacto de la pestaña “UsuariosDiamond”
+var SHEET_ID   = '1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs';
+var SHEET_NAME = 'UsuariosDiamond';
 
 function drawChart() {
   var errorDiv  = document.getElementById('error');
   var container = document.getElementById('gráfico_div');
   errorDiv.textContent = 'Cargando datos…';
 
-  try {
-    // Query para leer UserID, ParentForChart, isMirror, Nombre y Apellidos
-    var tq = encodeURIComponent(
-      'select A,B,C,D,E where A <> ""'
-    );
+  // Carga Google Charts
+  google.charts.load('current', { packages: ['orgchart'] });
+  google.charts.setOnLoadCallback(function() {
+    // Consulta (sin CORS) usando la API de Visualization
+    var tq = encodeURIComponent('select A,B,C,D,E where A<>""');
     var url = 'https://docs.google.com/spreadsheets/d/' + SHEET_ID +
-              '/gviz/tq?sheet=' + SHEET_NAME +
-              '&headers=1&tq=' + tq;
+              '/gviz/tq?sheet=' + SHEET_NAME + '&headers=1&tq=' + tq;
 
-    google.charts.load('current', { packages:['orgchart'] });
-    google.charts.setOnLoadCallback(function() {
-      var query = new google.visualization.Query(url);
-      query.send(function(resp) {
-        if (resp.isError()) {
-          errorDiv.textContent = 'Error Sheet: ' + resp.getMessage();
-          return;
-        }
-        var dt = resp.getDataTable();
-        // Reconstruimos espejo-abuelo: 
-        // dt tiene columnas A:UserID B:ParentForChart C:isMirror D:Nombre E:Apellidos
-        var out = new google.visualization.DataTable();
-        out.addColumn('string','UserID');
-        out.addColumn('string','ParentID');
-        out.addColumn('string','Tooltip');
+    var query = new google.visualization.Query(url);
+    query.send(function(resp) {
+      if (resp.isError()) {
+        errorDiv.textContent = 'Error hoja: ' + resp.getMessage();
+        return;
+      }
 
-        // Mapa id→mirrors y niveles
-        var map = {};
-        for (var i=0; i<dt.getNumberOfRows(); i++) {
-          var id        = dt.getValue(i,0);
-          var parent    = dt.getValue(i,1);
-          var mirror    = String(dt.getValue(i,2)).toLowerCase() === 'true';
-          var nombre    = dt.getValue(i,3)||'';
-          var apel      = dt.getValue(i,4)||'';
-          if (!map[id]) map[id] = { parent:parent, mirrors:[], name:nombre, last:apel };
-          if (mirror) map[parent].mirrors.push(id);
-        }
-        // Ordenamos las claves para dibujar en orden
-        var keys = Object.keys(map);
-        // Primero nodos reales
-        for (var k=0; k<keys.length; k++) {
-          var n = map[keys[k]];
-          // Si no es espejo (su ParentForChart no es otro espejo)
-          var isMir = n.parent && map[n.parent] && map[n.parent].mirrors.indexOf(keys[k])>=0;
-          if (!isMir) {
-            var label = '<div style="white-space:nowrap;">'
-                      + keys[k] + '<br>'
-                      + n.name + ' ' + n.last
-                      + '</div>';
-            out.addRow([ {v:keys[k],f:label}, n.parent||'', '' ]);
-          }
-          // luego sus espejos
-          for (var j=0; j<n.mirrors.length; j++) {
-            var mid = n.mirrors[j];
-            // debajo del espejo j-ésimo de su abuelo:
-            var abu = map[n.parent] && map[n.parent].mirrors ? map[n.parent].mirrors[j] : n.parent;
-            out.addRow([ mid, keys[k], '' ]);
-          }
-        }
+      var dt = resp.getDataTable();
+      // Columnas: 0=UserID,1=ParentForChart,2=isMirror,3=Nombre,4=Apellidos
+      var map = {};
+      var rows = dt.getNumberOfRows();
+      for (var i = 0; i < rows; i++) {
+        var id       = dt.getValue(i, 0);
+        var parent   = dt.getValue(i, 1) || '';
+        var mirror   = String(dt.getValue(i, 2)).toLowerCase() === 'true';
+        var name     = dt.getValue(i, 3) || '';
+        var surname  = dt.getValue(i, 4) || '';
 
-        var chart = new google.visualization.OrgChart(container);
-        chart.draw(out, { allowHtml:true });
-        errorDiv.textContent = '';
+        // Creamos nodo si no existe
+        if (!map[id]) map[id] = { parent: parent, mirrors: [], name: name, surname: surname };
+        // Si es espejo, lo acumulamos bajo su padre
+        if (mirror) map[parent] && map[parent].mirrors.push(id);
+      }
+
+      // Construimos la DataTable de OrgChart
+      var data = new google.visualization.DataTable();
+      data.addColumn('string', 'UserID');
+      data.addColumn('string', 'ParentID');
+      data.addColumn('string', 'Tooltip');
+
+      // Primero nodos “reales” (no-espejos), con label HTML de ID + nombre
+      Object.keys(map).forEach(function(id) {
+        var n = map[id];
+        // ¿Es espejo de alguien?
+        var isMirror = map[n.parent] && map[n.parent].mirrors.indexOf(id) !== -1;
+        if (!isMirror) {
+          var label = '<div style="white-space:nowrap;">'
+                    + id + '<br>' + n.name + ' ' + n.surname
+                    + '</div>';
+          data.addRow([ { v: id, f: label }, n.parent, '' ]);
+        }
+        // Luego sus espejos “colgados” bajo el espejo correspondiente de su abuelo
+        n.mirrors.forEach(function(mid, idx) {
+          var abu = map[n.parent] && map[n.parent].mirrors
+                  ? map[n.parent].mirrors[idx] || n.parent
+                  : n.parent;
+          data.addRow([ mid, id, '' ]);  // en OrgChart, el tercer campo puede quedar vacío
+        });
       });
-    });
 
-  } catch(e) {
-    errorDiv.textContent = 'Error general: ' + e.message;
-    console.error(e);
-  }
+      // Dibujamos
+      var chart = new google.visualization.OrgChart(container);
+      chart.draw(data, { allowHtml: true });
+      errorDiv.textContent = '';
+    });
+  });
 }
 
+// Arrancamos + refresco cada 30 s
 drawChart();
-setInterval(drawChart, 30000);
-
+setInterval(drawChart, 30 * 1000);
