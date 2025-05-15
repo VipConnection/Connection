@@ -1,111 +1,49 @@
-// script.js
+// → Ajusta estos valores a tu documento y pestaña
+const SHEET_ID     = '1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs';
+const QUERY_SHEET  = 'UsuariosDiamond';  // nombre exacto de la pestaña
 
-// 1) URL de exportación CSV: asegúrate de que el gid coincide con tu hoja UsuariosDiamond
-const CSV_URL = 
-const CSV_URL = 'https://docs.google.com/spreadsheets/d/1p6hq4WWXzwUQfU3DqWsp1H50BWHqS93sQIPioNy9Cbs/export?format=csv&gid=0';
- 
-
-async function drawChart() {
+// Función principal que descarga y dibuja el organigrama
+function drawChart() {
   const errorDiv  = document.getElementById('error');
   const container = document.getElementById('gráfico_div');
   errorDiv.textContent = 'Cargando datos…';
 
-  try {
-    // 2) Descarga y parseo muy simple del CSV
-    console.log('fetching:', CSV_URL);
-    const resp = await fetch(CSV_URL);
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const text = await resp.text();
-    const rows = text
-      .trim()
-      .split(/\r?\n/)
-      .map(line => line.split(',').map(c => c.replace(/^"|"$/g, '').trim()));
+  // Montamos la query SQL-like: columnas A..E, filas donde A (UserID) no esté vacío,
+  // y ordenamos por nivel / parent para que Google Charts las coloque correctamente.
+  const tq = encodeURIComponent(
+    'select A,B,C,D,E where A is not null order by D asc, E asc'
+  );
+  const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}` +
+              `/gviz/tq?sheet=${QUERY_SHEET}&headers=1&tq=${tq}`;
 
-    // 3) Cabecera e índices
-    const headers    = rows.shift();
-    const idxUser    = headers.indexOf('UserID');
-    const idxParent  = headers.indexOf('ParentForChart');
-    const idxMirror  = headers.indexOf('isMirror');
-    const idxName    = headers.indexOf('Nombre');
-    const idxSurname = headers.indexOf('Apellidos');
-    if ([idxUser,idxParent,idxMirror,idxName,idxSurname].some(i=>i<0)) {
-      throw new Error('Faltan columnas clave en CSV');
-    }
-
-    // 4) Construcción de mapa para calcular abuelo→espejo
-    //    Reproducimos aquí la lógica de Apps Script que ya funcionaba:
-    const map = {};
-    rows.forEach(r => {
-      const id      = r[idxUser];
-      const parent  = r[idxParent] || '';
-      // recogemos todos los espejos de este id (no los desplegamos aquí, sólo guardamos)
-      if (!map[id]) map[id] = { id, parent, mirrors: [], level: null, chartParent: null };
-      const node = map[id];
-      // isMirror no lo almacenamos, sólo hace falta para el chart
-      // pero extraemos los espejos "hijos"
-      if (r[idxMirror].toLowerCase()==='false') {
-        // buscamos espejos en todos los índices 'EspejoX' que haya tras el idxParent
-        headers.forEach((h,i) => {
-          if (h && h.startsWith('Espejo') && r[i]) {
-            node.mirrors.push(r[i]);
-          }
-        });
+  // Cargamos el paquete OrgChart
+  google.charts.load('current', { packages: ['orgchart'] });
+  google.charts.setOnLoadCallback(() => {
+    const query = new google.visualization.Query(url);
+    query.send(response => {
+      if (response.isError()) {
+        errorDiv.textContent = 
+          'Error al consultar la hoja: ' + response.getMessage();
+        console.error(response.getDetailedMessage());
+        return;
       }
-    });
-    // recursión para asignar nivel y chartParent
-    function setNode(id) {
-      const node = map[id];
-      if (!node || node.level!==null) return;
-      const p = map[node.parent];
-      if (!p) {
-        node.level       = 0;
-        node.chartParent = '';
-      } else {
-        setNode(node.parent);
-        node.level       = p.level+1;
-        node.chartParent = node.parent;
-      }
-      // “colgamos” cada espejo de este nodo
-      node.mirrors.forEach(m => {
-        if (!map[m]) map[m] = { id:m, parent:id, mirrors:[], level:null, chartParent:null };
-        setNode(m);
-      });
-    }
-    Object.keys(map).forEach(setNode);
 
-    // 5) Preparamos array para OrgChart con HTML en nodos “reales”
-    const dataArray = [['UserID','ParentID','LabelHTML']];
-    Object.values(map).forEach(n => {
-      // 5.a) Nodo “real” = ID + salto + Nombre Apellidos
-      const name    = rows.find(r=>r[idxUser]===n.id)?.[idxName]    || '';
-      const surname = rows.find(r=>r[idxUser]===n.id)?.[idxSurname] || '';
-      const label   = `<div style="white-space:nowrap;">${n.id}<br>${name} ${surname}</div>`;
-      dataArray.push([{ v:n.id, f:label }, n.chartParent, '']);
+      // Obtenemos directamente el DataTable ya filtrado y ordenado
+      const dataTable = response.getDataTable();
 
-      // 5.b) Cada espejo “colgado” con lógica abuelo→espejo
-      n.mirrors.forEach((m,i) => {
-        const abuID = n.chartParent;
-        const abuMirrors = abuID && map[abuID] ? map[abuID].mirrors : [];
-        const chartParForMirror = abuMirrors[i] || n.id;
-        dataArray.push([ m, chartParForMirror, '' ]);
-      });
-    });
-
-    // 6) Dibujamos
-    google.charts.load('current',{packages:['orgchart']});
-    google.charts.setOnLoadCallback(()=>{
-      const data  = google.visualization.arrayToDataTable(dataArray);
+      // Dibujamos el OrgChart
       const chart = new google.visualization.OrgChart(container);
-      chart.draw(data,{allowHtml:true});
+      chart.draw(dataTable, {
+        allowHtml: true,
+        // si quieres estilos extra: color de nodos, tamaño de fuente, etc.
+      });
+
       errorDiv.textContent = '';
     });
-
-  } catch(err) {
-    console.error(err);
-    errorDiv.textContent = 'Error cargando datos: ' + err.message;
-  }
+  });
 }
 
-// Arrancamos y refrescamos cada 30 s
+// Arrancamos y refrescamos cada 30 segundos
 drawChart();
-setInterval(drawChart, 30*1000);
+setInterval(drawChart, 30 * 1000);
+
