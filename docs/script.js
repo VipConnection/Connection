@@ -62,7 +62,10 @@ async function drawChart() {
       errorDiv.textContent = '';
     });
 
-  } catch(err) {
+  }// Arrancamos y luego refrescamos cada 30 segundos
+drawChart();
+setInterval(drawChart, 30 * 1000);
+
     console.error(err);
     errorDiv.textContent = 'Error cargando datos: ' + err.message;
   }
