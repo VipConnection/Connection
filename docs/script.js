@@ -13,44 +13,34 @@ async function drawChart() {
   try {
     // 2) Fetch + parse CSV
     const resp = await fetch(CSV_URL);
-    if (!resp.ok) throw new Error(HTTP ${resp.status});
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const text = await resp.text();
     const rows = text
       .trim()
       .split(/\r?\n/)
-      .map(r => r.split(',').map(c => c.replace(/^"|"$/g, '').trim()));
+      .map(r => r
+        .split(',')
+        .map(c => c.replace(/^"|"$/g, '').trim())
+      );
 
-   // 3) Encabezados e índices
-const headers      = rows.shift();
-const idxUser      = headers.indexOf('UserID');
-const idxParentFor = headers.indexOf('ParentForChart');
-const idxMirror    = headers.indexOf('isMirror');
-const idxName      = headers.indexOf('Nombre');
-const idxSurname   = headers.indexOf('Apellidos');
-if ([idxUser, idxParentFor, idxMirror, idxName, idxSurname].some(i => i < 0)) {
-  throw new Error('Faltan columnas clave en CSV');
-}
-
-// …
-
-rows.forEach(r => {
-  const id       = r[idxUser];
-  const parent   = r[idxParentFor] || '';       // <= aquí
-  const isMirror = r[idxMirror].toLowerCase() === 'true';
-  // …
-  if (isMirror) {
-    dataArray.push([ id, parent, '' ]);
-  } else {
-    dataArray.push([ { v:id, f:label }, parent, '' ]);
-  }
-});
+    // 3) Encabezados e índices
+    const headers      = rows.shift();
+    const idxUser      = headers.indexOf('UserID');
+    const idxParentFor = headers.indexOf('ParentForChart');
+    const idxMirror    = headers.indexOf('isMirror');
+    const idxName      = headers.indexOf('Nombre');
+    const idxSurname   = headers.indexOf('Apellidos');
+    if ([idxUser, idxParentFor, idxMirror, idxName, idxSurname].some(i => i < 0)) {
+      throw new Error('Faltan columnas clave en CSV');
+    }
 
     // 4) Montamos el array que pide OrgChart
     const dataArray = [['id','parent','tooltip']];
     rows.forEach(r => {
       const id       = r[idxUser];
       if (!id) return;
-      const parent   = r[idxParent] || '';
+      // Usamos el índice correcto de ParentForChart
+      const parent   = r[idxParentFor] || '';
       const isMirror = r[idxMirror].toLowerCase() === 'true';
       const name     = r[idxName]    || '';
       const surname  = r[idxSurname] || '';
@@ -65,17 +55,17 @@ rows.forEach(r => {
         `.trim();
         dataArray.push([ { v: id, f: label }, parent, '' ]);
       } else {
-        // espejo: sólo ID, colgado del ParentForChart que ya viene calculado
+        // espejo: colgado del ParentForChart que ya viene calculado
         dataArray.push([ id, parent, '' ]);
       }
     });
 
     // 5) Dibujamos con Google OrgChart
-    google.charts.load('current',{packages:['orgchart']});
-    google.charts.setOnLoadCallback(()=>{
+    google.charts.load('current', { packages: ['orgchart'] });
+    google.charts.setOnLoadCallback(() => {
       const data  = google.visualization.arrayToDataTable(dataArray);
       const chart = new google.visualization.OrgChart(container);
-      chart.draw(data, { allowHtml:true });
+      chart.draw(data, { allowHtml: true });
       errorDiv.textContent = '';
     });
 
