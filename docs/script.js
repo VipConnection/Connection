@@ -39,7 +39,7 @@ async function drawChart() {
     rows.forEach(r => {
       const id       = r[idxUser];
       if (!id) return;
-      // Usamos el índice correcto de ParentForChart
+      // ← Aquí está el único cambio:
       const parent   = r[idxParentFor] || '';
       const isMirror = r[idxMirror].toLowerCase() === 'true';
       const name     = r[idxName]    || '';
@@ -55,26 +55,12 @@ async function drawChart() {
         `.trim();
         dataArray.push([ { v: id, f: label }, parent, '' ]);
       } else {
-        // espejo: colgado del ParentForChart que ya viene calculado
+        // espejo: colgado donde ya lo calculó ParentForChart
         dataArray.push([ id, parent, '' ]);
       }
     });
 
     // 5) Dibujamos con Google OrgChart
     google.charts.load('current', { packages: ['orgchart'] });
-    google.charts.setOnLoadCallback(() => {
-      const data  = google.visualization.arrayToDataTable(dataArray);
-      const chart = new google.visualization.OrgChart(container);
-      chart.draw(data, { allowHtml: true });
-      errorDiv.textContent = '';
-    });
+    google.charts.
 
-  } catch(err) {
-    console.error(err);
-    errorDiv.textContent = 'Error cargando datos: ' + err.message;
-  }
-}
-
-// Arranca y refresca cada 30s
-drawChart();
-setInterval(drawChart, 30*1000);
