@@ -20,16 +20,31 @@ async function drawChart() {
       .split(/\r?\n/)
       .map(r => r.split(',').map(c => c.replace(/^"|"$/g, '').trim()));
 
-    // 3) Headers + detección de índices
-    const headers    = rows.shift();
-    const idxUser    = headers.indexOf('UserID');
-    const idxParent  = headers.indexOf('ParentForChart');
-    const idxMirror  = headers.indexOf('isMirror');
-    const idxName    = headers.indexOf('Nombre');
-    const idxSurname = headers.indexOf('Apellidos');
-    if ([idxUser,idxParent,idxMirror,idxName,idxSurname].some(i => i < 0)) {
-      throw new Error('Faltan columnas clave en CSV');
-    }
+  // 3) Encabezados e índices
+const headers      = rows.shift();
+const idxUser      = headers.indexOf('UserID');
+const idxParentFor = headers.indexOf('ParentForChart');
+const idxMirror    = headers.indexOf('isMirror');
+const idxName      = headers.indexOf('Nombre');
+const idxSurname   = headers.indexOf('Apellidos');
+if ([idxUser, idxParentFor, idxMirror, idxName, idxSurname].some(i => i < 0)) {
+  throw new Error('Faltan columnas clave en CSV');
+}
+
+// …
+
+rows.forEach(r => {
+  const id       = r[idxUser];
+  const parent   = r[idxParentFor] || '';       // <= aquí
+  const isMirror = r[idxMirror].toLowerCase() === 'true';
+  // …
+  if (isMirror) {
+    dataArray.push([ id, parent, '' ]);
+  } else {
+    dataArray.push([ { v:id, f:label }, parent, '' ]);
+  }
+});
+
 
     // 4) Montamos el array que pide OrgChart
     const dataArray = [['id','parent','tooltip']];
